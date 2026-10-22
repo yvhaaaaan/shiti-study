@@ -8,3 +8,4 @@ dist/
 !.env.example
 scripts/preview-qa.cjs
 scripts/journey-qa.cjs
+.netlify/
