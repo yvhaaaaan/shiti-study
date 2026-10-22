@@ -1,0 +1,43 @@
+{
+  "name": "shiti-study",
+  "version": "1.0.0",
+  "private": true,
+  "description": "拾题 · 让每一道错题都有回响。Vue 3 H5 与微信小程序。",
+  "scripts": {
+    "dev:h5": "node scripts/prepare-ocr.cjs && uni --port 5173",
+    "dev:ai": "node --env-file-if-exists=.env.local scripts/serve-ai.mjs",
+    "dev:mp-weixin": "uni -p mp-weixin",
+    "build:h5": "node scripts/prepare-ocr.cjs && uni build && node scripts/prepare-runtime.cjs",
+    "prepare:ocr": "node scripts/prepare-ocr.cjs",
+    "build:static": "npm run build:h5 && node scripts/prepare-preview.cjs",
+    "build:sites-host": "node scripts/prepare-sites-worker.cjs",
+    "build": "npm run build:static && npm run build:sites-host",
+    "build:mp-weixin": "uni build -p mp-weixin",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-5020420260813003",
+    "@dcloudio/uni-components": "3.0.0-5020420260813003",
+    "@dcloudio/uni-h5": "3.0.0-5020420260813003",
+    "@dcloudio/uni-mp-weixin": "3.0.0-5020420260813003",
+    "fflate": "0.8.3",
+    "tesseract.js": "7.0.0",
+    "vue": "3.4.38",
+    "vue-i18n": "9.14.5"
+  },
+  "devDependencies": {
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@dcloudio/types": "3.4.31",
+    "@dcloudio/uni-cli-shared": "3.0.0-5020420260813003",
+    "@dcloudio/uni-stacktracey": "3.0.0-5020420260813003",
+    "@dcloudio/vite-plugin-uni": "3.0.0-5020420260813003",
+    "@types/node": "22.19.15",
+    "@vue/tsconfig": "0.5.1",
+    "lucide-static": "1.57.0",
+    "tesseract.js-core": "7.0.0",
+    "typescript": "5.8.3",
+    "vite": "5.2.8",
+    "vue-tsc": "2.2.12"
+  }
+}

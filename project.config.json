@@ -1,0 +1,14 @@
+{
+  "description": "拾题 · Vue 3 错题本微信小程序",
+  "miniprogramRoot": "dist/build/mp-weixin/",
+  "compileType": "miniprogram",
+  "appid": "touristappid",
+  "projectname": "shiti-study",
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "enhance": true,
+    "postcss": true,
+    "minified": true
+  }
+}

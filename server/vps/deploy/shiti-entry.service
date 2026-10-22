@@ -1,0 +1,16 @@
+[Unit]
+Description=Shiti entrance redirects to the current HTTPS URL
+After=shiti.service
+
+[Service]
+User=shiti
+Group=shiti
+EnvironmentFile=/etc/shiti-entry.env
+Environment=GOMEMLIMIT=16MiB
+Environment=GOGC=50
+ExecStart=/opt/shiti/current/shiti-server --entry-only
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadOnlyDirectories=/opt/shiti

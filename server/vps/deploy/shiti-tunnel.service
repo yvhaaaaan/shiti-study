@@ -1,0 +1,25 @@
+[Unit]
+Description=Shiti classroom HTTPS tunnel
+After=shiti.service network-online.target
+Wants=shiti.service network-online.target
+
+[Service]
+Type=simple
+User=shiti
+Group=shiti
+Environment=GOMEMLIMIT=48MiB
+Environment=GOGC=50
+ExecStart=/opt/shiti/current/start-tunnel.sh
+ExecStopPost=/bin/rm -f /run/shiti/tunnel-url
+Restart=always
+RestartSec=5
+MemoryLimit=104857600
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadOnlyDirectories=/opt/shiti
+UMask=0022
+
+[Install]
+WantedBy=multi-user.target

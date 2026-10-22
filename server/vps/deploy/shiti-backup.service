@@ -1,0 +1,16 @@
+[Unit]
+Description=Create a consistent Shiti database backup
+
+[Service]
+Type=oneshot
+User=shiti
+Group=shiti
+EnvironmentFile=/etc/shiti.env
+Environment=GOMEMLIMIT=48MiB
+Environment=GOGC=50
+ExecStart=/opt/shiti/current/shiti-server --backup
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+ReadOnlyDirectories=/opt/shiti
+UMask=0077

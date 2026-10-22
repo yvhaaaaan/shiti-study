@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.validation/
+.sites-runtime/
+.sites-checkout/
+*.log
+.env*
+!.env.example
+scripts/preview-qa.cjs
+scripts/journey-qa.cjs
