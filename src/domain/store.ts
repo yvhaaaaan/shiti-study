@@ -260,6 +260,18 @@ function addQuestion(input: QuestionInput): Question {
   return getQuestion(question.id)
 }
 
+function addQuestions(inputs: QuestionInput[]): Question[] {
+  if (!inputs.length || inputs.length > 20) throw new Error('每批请选择 1 至 20 道题。')
+  // Validate the entire batch before mutating state so a bad item cannot leave
+  // a partially added queue. Persistence is scheduled once for the whole batch.
+  const normalized = inputs.map(normalizeQuestion)
+  const now = new Date().toISOString()
+  const added: Question[] = normalized.map(input => ({ ...input, id: id('question'), createdAt: now, updatedAt: now, reviewCount: 0, organizedAt: input.organizationStatus === 'ready' ? now : undefined }))
+  state.questions.unshift(...added)
+  persist()
+  return added.map(question => getQuestion(question.id))
+}
+
 function updateQuestion(questionId: string, patch: Partial<QuestionInput>): Question {
   const question = getQuestion(questionId)
   const normalized = normalizeQuestion({ ...question, ...patch })
@@ -292,6 +304,41 @@ function restoreQuestion(questionId: string): Question {
   question.updatedAt = new Date().toISOString()
   persist()
   return question
+}
+
+function batchQuestions(questionIds: string[], deleted: boolean): Question[] {
+  return [...new Set(questionIds)].map(questionId => {
+    const question = getQuestion(questionId, deleted)
+    if (deleted && !question.deletedAt) throw new Error('只能恢复已移入回收站的题目，请重新选择。')
+    return question
+  })
+}
+
+function addTagsToQuestions(questionIds: string[], tags: string[]): void {
+  const targets = batchQuestions(questionIds, false)
+  if (!targets.length) return
+  const additions = normalizeTags(tags)
+  const updates = targets.map(question => ({ question, tags: normalizeTags([...question.tags, ...additions]) }))
+  const now = new Date().toISOString()
+  // Validate every merged tag list before changing any selected question.
+  updates.forEach(({ question, tags }) => { question.tags = tags; question.updatedAt = now })
+  persist()
+}
+
+function deleteQuestions(questionIds: string[]): void {
+  const targets = batchQuestions(questionIds, false)
+  if (!targets.length) return
+  const now = new Date().toISOString()
+  targets.forEach(question => { question.deletedAt = now; question.updatedAt = now })
+  persist()
+}
+
+function restoreQuestions(questionIds: string[]): void {
+  const targets = batchQuestions(questionIds, true)
+  if (!targets.length) return
+  const now = new Date().toISOString()
+  targets.forEach(question => { delete question.deletedAt; question.updatedAt = now })
+  persist()
 }
 
 function submitReview(questionId: string, input: ReviewInput): ReviewRecord {
@@ -367,7 +414,7 @@ function savePaper(input: PaperInput): Paper {
   if (input.id && !existing) throw new Error('这份练习卷不存在。')
   const questionIds = cleanStrings(input.questionIds).filter((questionId) => questions.value.some((question) => question.id === questionId))
   if (!questionIds.length) throw new Error('请至少选择一道仍在错题本中的题目。')
-  if (questionIds.some((questionId) => getQuestion(questionId).organizationStatus !== 'ready')) throw new Error('待处理题目暂不能组卷，请先完成整理。')
+  if (questionIds.some((questionId) => getQuestion(questionId).organizationStatus !== 'ready')) throw new Error('待整理题目暂不能组卷，请先完成整理。')
   if (subject !== '综合' && questionIds.some((questionId) => getQuestion(questionId).subject !== subject)) throw new Error('跨学科选题时，请将练习卷学科设为“综合”。')
   const now = new Date().toISOString()
   const fields = { title: input.title.trim(), subject, questionIds, updatedAt: now }
@@ -411,7 +458,7 @@ async function importBackup(json: string): Promise<BackupCounts> {
   return counts
 }
 
-const store = { state, storageStatus, initialize, flushPersistence, retryPersistence, questions, pendingQuestions, readyQuestions, notes, papers, availableSubjects, dueQuestions, stats, addQuestion, updateQuestion, toggleFavorite, deleteQuestion, restoreQuestion, submitReview, setPlan, saveNote, deleteNote, savePaper, updateProfile, resetDemo, exportBackup, validateBackup, importBackup }
+const store = { state, storageStatus, initialize, flushPersistence, retryPersistence, questions, pendingQuestions, readyQuestions, notes, papers, availableSubjects, dueQuestions, stats, addQuestion, addQuestions, updateQuestion, toggleFavorite, deleteQuestion, restoreQuestion, addTagsToQuestions, deleteQuestions, restoreQuestions, submitReview, setPlan, saveNote, deleteNote, savePaper, updateProfile, resetDemo, exportBackup, validateBackup, importBackup }
 
 /** One reactive instance shared by all Vue pages; mutations always go through these methods. */
 export function useStudyStore() { return store }

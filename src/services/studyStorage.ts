@@ -7,6 +7,32 @@ let database: Promise<IDBDatabase> | undefined
 let revision = 0
 let failedWrite: { revision: number; writeId: string; data: StudyState } | undefined
 const uploads = new Map<string, string>()
+let uploadGeneration = 0
+let activeUploads = 0
+const pendingUploads = new Map<string, Promise<string>>()
+const uploadControllers = new Set<AbortController>()
+const uploadQueue: { generation: number; run: () => Promise<string>; resolve: (url: string) => void; reject: (error: unknown) => void }[] = []
+
+function ensureUploadSession(generation: number) {
+  if (generation !== uploadGeneration) throw new Error('登录账号已变化，本次保存已停止，请在当前账号重新操作。')
+}
+function resetUploadSession() {
+  uploadGeneration += 1
+  uploads.clear(); pendingUploads.clear()
+  for (const controller of uploadControllers) controller.abort()
+  for (const task of uploadQueue.splice(0)) task.reject(new Error('登录账号已变化，已停止原账号的题图上传。'))
+}
+function drainUploadQueue() {
+  while (activeUploads < 3 && uploadQueue.length) {
+    const task = uploadQueue.shift()!
+    if (task.generation !== uploadGeneration) { task.reject(new Error('登录账号已变化，已停止原账号的题图上传。')); continue }
+    activeUploads += 1
+    void task.run().then(task.resolve, task.reject).finally(() => { activeUploads -= 1; drainUploadQueue() })
+  }
+}
+function queuedUpload(generation: number, run: () => Promise<string>): Promise<string> {
+  return new Promise((resolve, reject) => { uploadQueue.push({ generation, run, resolve, reject }); drainUploadQueue() })
+}
 
 export function cloudEnabled(): boolean {
   // #ifdef H5
@@ -14,8 +40,17 @@ export function cloudEnabled(): boolean {
   // #endif
   return false
 }
+/** Reuse the current account's completed upload without reading the image back. */
+export function cloudImageReference(source: string): string | undefined {
+  if (!cloudEnabled()) return undefined
+  if (/^\/api\/media\/[a-f0-9]{64}$/.test(source)) return source
+  return uploads.get(`optimized:${source}`) || uploads.get(`original:${source}`)
+}
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController()
+  const abort = () => controller.abort()
+  options.signal?.addEventListener('abort', abort, { once: true })
+  if (options.signal?.aborted) controller.abort()
   const timeout = setTimeout(() => controller.abort(), 30000)
   try {
     const result = await fetch(path, { credentials: 'same-origin', ...options, signal: controller.signal })
@@ -28,19 +63,23 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   } catch (error) {
     if (error instanceof Error && error.name !== 'AbortError' && !(error instanceof TypeError)) throw error
     throw new Error('暂时无法连接服务器，当前输入仍保留，请检查网络后重试。')
-  } finally { clearTimeout(timeout) }
+  } finally { clearTimeout(timeout); options.signal?.removeEventListener('abort', abort) }
 }
 export async function checkSession() {
   storageStatus.cloud = cloudEnabled()
   if (!storageStatus.cloud) return
   const result = await request<{ user: typeof storageStatus.user }>('/api/session')
+  if (result.user?.ID !== storageStatus.user?.ID) resetUploadSession()
   storageStatus.user = result.user
 }
 export async function login(username: string, password: string, inviteCode?: string) {
   storageStatus.busy = true; storageStatus.error = ''
+  // Stop queued work before the login response can replace the session cookie.
+  resetUploadSession()
   try {
     const result = await request<{ user: NonNullable<typeof storageStatus.user> }>(inviteCode === undefined ? '/api/login' : '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, inviteCode }) })
-    storageStatus.initializing = true; storageStatus.user = result.user; storageStatus.expired = false; revision = 0; failedWrite = undefined; uploads.clear()
+    resetUploadSession()
+    storageStatus.initializing = true; storageStatus.user = result.user; storageStatus.expired = false; revision = 0; failedWrite = undefined
   } catch (error) { storageStatus.error = error instanceof Error ? error.message : '登录未完成，请重试。'; throw error }
   finally { storageStatus.busy = false }
 }
@@ -108,37 +147,72 @@ async function optimizedImage(source: string): Promise<Blob> {
   }
   return blob
 }
-async function uploadImage(source: string, preserveOriginal = false): Promise<string> {
-  if (/^\/api\/media\/[a-f0-9]{64}$/.test(source)) return source
+function uploadImage(source: string, preserveOriginal = false): Promise<string> {
+  if (/^\/api\/media\/[a-f0-9]{64}$/.test(source)) return Promise.resolve(source)
   const cacheKey = `${preserveOriginal ? 'original:' : 'optimized:'}${source}`
-  const known = uploads.get(cacheKey); if (known) return known
-  if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(source)) throw new Error('题图地址无法迁移，请重新上传原图。')
-  const blob = preserveOriginal ? await (await fetch(source)).blob() : await optimizedImage(source)
-  const result = await request<{ url: string }>('/api/media', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob })
-  uploads.set(cacheKey, result.url); return result.url
+  const known = uploads.get(cacheKey); if (known) return Promise.resolve(known)
+  const pending = pendingUploads.get(cacheKey); if (pending) return pending
+  if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(source)) return Promise.reject(new Error('题图地址无法迁移，请重新上传原图。'))
+  const generation = uploadGeneration
+  const transfer = queuedUpload(generation, async () => {
+    ensureUploadSession(generation)
+    const blob = preserveOriginal ? await (await fetch(source)).blob() : await optimizedImage(source)
+    ensureUploadSession(generation)
+    const controller = new AbortController()
+    uploadControllers.add(controller)
+    try {
+      const result = await request<{ url: string }>('/api/media', { method: 'POST', headers: { 'Content-Type': blob.type }, body: blob, signal: controller.signal })
+      ensureUploadSession(generation)
+      if (!/^\/api\/media\/[a-f0-9]{64}$/.test(result.url)) throw new Error('服务器未返回有效的题图地址，请重试保存。')
+      uploads.set(cacheKey, result.url)
+      return result.url
+    } finally { uploadControllers.delete(controller) }
+  })
+  const tracked: Promise<string> = transfer.then(url => { if (pendingUploads.get(cacheKey) === tracked) pendingUploads.delete(cacheKey); return url }, error => { if (pendingUploads.get(cacheKey) === tracked) pendingUploads.delete(cacheKey); throw error })
+  pendingUploads.set(cacheKey, tracked)
+  return tracked
 }
 /** Keep cloud attachment drafts small; the note itself is committed only on Save. */
 export async function prepareAttachmentImage(source: string): Promise<string> {
   return cloudEnabled() ? uploadImage(source) : source
 }
 export async function cloudSnapshot(snapshot: StudyState, preserveOriginal = false): Promise<StudyState> {
+  const generation = uploadGeneration
   const copy = JSON.parse(JSON.stringify(snapshot)) as StudyState
   const owners = [...copy.questions, ...copy.notes, ...copy.reviews.map(review => review.questionSnapshot).filter((row): row is NonNullable<typeof row> => Boolean(row))]
-  // These rows belong to the detached JSON copy, not frozen review snapshots.
-  for (const row of owners) (row as unknown as { images: string[] }).images = await Promise.all((row.images ?? []).map(source => uploadImage(source, preserveOriginal)))
-  for (const question of copy.questions) question.remarkImages = await Promise.all((question.remarkImages ?? []).map(source => uploadImage(source, preserveOriginal)))
+  const tasks: Promise<void>[] = []
+  function schedule(sources: readonly string[] | undefined): string[] {
+    const targets: string[] = new Array(sources?.length ?? 0)
+    for (const [index, source] of (sources ?? []).entries()) tasks.push(uploadImage(source, preserveOriginal).then(url => { targets[index] = url }))
+    return targets
+  }
+  // The pool spans all owners, including remarks and review snapshots. Only this
+  // detached copy changes; committing the state still waits for every upload.
+  for (const row of owners) (row as unknown as { images: string[] }).images = schedule(row.images)
+  for (const question of copy.questions) question.remarkImages = schedule(question.remarkImages)
+  // Wait for every scheduled image even after one fails, so a retry never races
+  // an unfinished transfer from the previous snapshot.
+  const results = await Promise.allSettled(tasks)
+  ensureUploadSession(generation)
+  const failure = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')
+  if (failure) throw failure.reason
   return copy
 }
-async function sendWrite(write: NonNullable<typeof failedWrite>) {
+async function sendWrite(write: NonNullable<typeof failedWrite>, generation: number) {
+  ensureUploadSession(generation)
   const result = await request<{ revision: number }>('/api/state', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(write) })
+  ensureUploadSession(generation)
   revision = result.revision
 }
 export async function saveCloudState(snapshot: StudyState, preserveOriginal = false): Promise<void> {
-  if (failedWrite) { await sendWrite(failedWrite); failedWrite = undefined }
+  const generation = uploadGeneration
+  if (failedWrite) { await sendWrite(failedWrite, generation); failedWrite = undefined }
+  ensureUploadSession(generation)
   const data = await cloudSnapshot(snapshot, preserveOriginal)
+  ensureUploadSession(generation)
   const write = { revision, writeId: `save-${Date.now()}-${Math.random().toString(36).slice(2)}`, data }
-  try { await sendWrite(write) }
-  catch (error) { failedWrite = write; throw error }
+  try { await sendWrite(write, generation) }
+  catch (error) { if (generation === uploadGeneration) failedWrite = write; throw error }
 }
 export async function portableState(snapshot: StudyState): Promise<StudyState> {
   const copy = JSON.parse(JSON.stringify(snapshot)) as StudyState

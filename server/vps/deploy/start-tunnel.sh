@@ -9,6 +9,8 @@ while IFS= read -r line; do
       if [ -n "$target" ]; then
         printf '%s\n' "$target" > /run/shiti/tunnel-url.new
         mv -f /run/shiti/tunnel-url.new /run/shiti/tunnel-url
+        printf '%s\n' "$target" > /var/lib/shiti/tunnel-url.new
+        mv -f /var/lib/shiti/tunnel-url.new /var/lib/shiti/tunnel-url
       fi
       ;;
   esac

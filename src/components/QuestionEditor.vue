@@ -237,7 +237,7 @@ async function generateWithMiMo() {
   })
   try {
     const result = await aiTask.promise
-    if (!disposed && sequence === aiSequence) { aiResult.value = result; aiNotice.value = '整理结果已生成，核对无误后确认入库。' }
+    if (!disposed && sequence === aiSequence) { aiResult.value = result; aiNotice.value = '整理结果已生成，核对无误后保存整理结果。' }
   } catch (error) {
     if (!disposed && sequence === aiSequence && !(error instanceof GenerationCancelledError)) aiError.value = error instanceof Error ? error.message : '本次生成失败，当前输入已保留'
   } finally {
@@ -294,7 +294,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
     const cleared = clearQuestionDraft(draftQuestionId)
     skipUnmountWrite = true
     emit('saved', sessionQuestionId.value)
-    uni.showToast({ title: cleared.ok ? organizationStatus === 'pending' ? '进度已保存，仍在待处理' : isPending ? '整理完成，已加入错题本' : '修改已保存' : '题目已保存，旧草稿暂未清除', icon: cleared.ok ? 'success' : 'none' })
+    uni.showToast({ title: cleared.ok ? organizationStatus === 'pending' ? '题目已保存，可稍后继续整理' : isPending ? '整理完成，已保存' : '修改已保存' : '题目已保存，旧草稿暂未清除', icon: cleared.ok ? 'success' : 'none' })
   } catch (error) {
     persistDraft()
     saveError.value = error instanceof Error ? error.message : '保存失败，请重试'
@@ -306,7 +306,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
 
 <template>
   <view class="modal-overlay" @tap.self="requestClose"><view class="modal-window editor-window">
-    <view class="modal-header"><view><text class="eyebrow">REVIEW & KEEP</text><text class="modal-title">{{ isPending ? '核对并整理' : '编辑错题' }}</text></view><button class="icon-button" aria-label="关闭" :disabled="loading || selectingRemarkImages" @tap="requestClose"><AppIcon name="x" /></button></view>
+    <view class="modal-header"><view><text class="eyebrow">REVIEW & KEEP</text><text class="modal-title">{{ isPending ? '补充整理' : '编辑错题' }}</text></view><button class="icon-button" aria-label="关闭" :disabled="loading || selectingRemarkImages" @tap="requestClose"><AppIcon name="x" /></button></view>
     <QuestionFlowSteps v-if="isPending" :active="2" />
     <scroll-view scroll-y class="modal-scroll" :scroll-into-view="remarkScrollTarget"><view class="editor-content">
       <view v-if="pendingDraft" class="draft-banner"><view class="draft-banner-heading"><AppIcon name="notebook-pen" :size="18" tone="green" /><text>上次的修改还在</text></view><text class="draft-banner-copy">{{ draftTime(pendingDraft.updatedAt) }} 保存。恢复后继续编辑，或丢弃这份草稿。</text><text v-if="pendingIsOlder" class="draft-version-warning">原题已有更新，恢复后请核对再保存。</text><view class="draft-banner-actions"><button class="draft-action" @tap="restoreDraft">恢复草稿</button><button class="draft-action draft-action-muted" @tap="discardDraft">丢弃旧草稿</button></view></view>
@@ -323,7 +323,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
           <text v-else class="ai-stream-placeholder">题图已收到，通常 1 秒左右先出题干。</text>
           <text class="ai-stream-hint">{{ aiStreamStem ? '解析继续生成中，完成后由你核对确认。' : '识别到完整题干后会先显示在这里。' }}</text>
         </view>
-        <view class="ai-capture-feedback" aria-live="polite"><text v-if="aiLoading">原题已保留，生成后由你核对确认。</text><text v-else-if="aiError" class="ai-error">{{ aiError }} 也可以在下方手动整理。</text><text v-else-if="aiNotice">{{ aiNotice }}</text><text v-else>{{ pendingDraft || draftReadError ? '请先处理上次草稿。' : '也可以直接在下方手动补充。' }}</text><button v-if="aiLoading" class="text-button ai-cancel" @tap="cancelGeneration">改为手动整理</button></view>
+        <view class="ai-capture-feedback" aria-live="polite"><text v-if="aiLoading">{{ props.question ? '题目已收录，生成后由你核对确认。' : '当前输入仍保留在此页面，生成后由你核对确认。' }}</text><text v-else-if="aiError" class="ai-error">{{ aiError }} 也可以在下方手动整理。</text><text v-else-if="aiNotice">{{ aiNotice }}</text><text v-else>{{ pendingDraft || draftReadError ? '请先处理上次草稿。' : '也可以直接在下方手动补充。' }}</text><button v-if="aiLoading" class="text-button ai-cancel" @tap="cancelGeneration">改为手动整理</button></view>
       </view>
 
       <view v-if="aiResult" class="ai-result-panel">
@@ -331,7 +331,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <text class="ai-result-title">{{ aiResult.title }}</text>
         <view v-if="form.images.length" class="ai-source-images"><text>对照原图</text><view class="image-previews"><view v-for="image in form.images" :key="image" class="image-preview"><image :src="image" mode="aspectFit" @tap="previewImage(image)" /></view></view></view>
         <view class="ai-result-copy"><text class="ai-result-label">题目内容</text><text>{{ aiResult.stem }}</text><text class="ai-result-label">参考答案</text><text>{{ aiResult.answer }}</text><text class="ai-result-label">解题解析</text><text>{{ aiResult.analysis }}</text><text v-if="aiResult.tags.length" class="ai-result-label">检索标签</text><text v-if="aiResult.tags.length" class="ai-result-tags">{{ aiResult.tags.join(' · ') }}</text></view>
-        <text class="ai-apply-hint" :class="{ 'ai-error': aiResultStale }">{{ aiResultStale ? '题目信息已更改，请返回修改或重新生成。' : '确认无误后即可入库；需要调整时，先修改内容。' }}</text>
+        <text class="ai-apply-hint" :class="{ 'ai-error': aiResultStale }">{{ aiResultStale ? '题目信息已更改，请返回修改或重新生成。' : '核对无误后保存整理结果；需要调整时，先修改内容。' }}</text>
       </view>
 
       <view v-show="!aiLoading && !aiResult" class="editor-manual-form">
@@ -340,10 +340,10 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <text class="field-label">题目内容 <text class="optional">与题图至少保留一项</text></text><textarea v-model="form.stem" class="form-textarea editor-stem" maxlength="5000" placeholder="核对题干、公式和选项…" /><text class="field-counter">{{ form.stem.length }} / 5000</text>
 
         <view class="editor-section-heading"><text>分类与标签</text></view>
-        <view class="form-label-row"><text class="field-label">科目 <text class="optional">入库时必选</text></text><button class="custom-subject-toggle" @tap="customSubjectOpen = !customSubjectOpen"><AppIcon name="plus" :size="13" tone="green" /><text>自定义科目</text></button></view>
+        <view class="form-label-row"><text class="field-label">科目 <text class="optional">完成整理时必选</text></text><button class="custom-subject-toggle" @tap="customSubjectOpen = !customSubjectOpen"><AppIcon name="plus" :size="13" tone="green" /><text>自定义科目</text></button></view>
         <view class="subject-picker"><button v-if="isPending" class="subject-choice" :class="{ active: !form.subject }" :aria-pressed="!form.subject" @tap="form.subject = ''">暂不分类</button><button v-for="subject in shownSubjects" :key="subject" class="subject-choice" :class="{ active: form.subject === subject }" :aria-pressed="form.subject === subject" @tap="form.subject = subject">{{ subject }}</button><button v-if="subjects.length > 8" class="subject-choice subject-more" @tap="expandedSubjects = !expandedSubjects"><text>{{ expandedSubjects ? '收起科目' : '更多科目' }}</text><AppIcon name="chevron-down" :size="12" tone="green" /></button></view>
         <view v-if="customSubjectOpen" class="custom-subject"><view class="custom-subject-row"><input v-model="customSubjectName" class="form-input custom-subject-input" :maxlength="20" placeholder="例如：高等数学、经济学、日语" @confirm="addCustomSubject" /><button class="button button-quiet custom-subject-apply" @tap="addCustomSubject">使用此科目</button></view><text class="custom-subject-hint" :class="{ 'custom-subject-error': customSubjectError }">{{ customSubjectError || '最多 20 字，保存后可用于筛选。' }}</text></view>
-        <text class="field-label">难度 <text class="optional">入库时必选</text></text><view class="difficulty-picker"><button v-if="isPending" class="filter-chip" :class="{ active: !form.difficulty }" @tap="form.difficulty = ''">暂不选择</button><button v-for="level in ['基础', '进阶', '挑战']" :key="level" class="filter-chip" :class="{ active: form.difficulty === level }" @tap="form.difficulty = level as Question['difficulty']">{{ level }}</button></view>
+        <text class="field-label">难度 <text class="optional">完成整理时必选</text></text><view class="difficulty-picker"><button v-if="isPending" class="filter-chip" :class="{ active: !form.difficulty }" @tap="form.difficulty = ''">暂不选择</button><button v-for="level in ['基础', '进阶', '挑战']" :key="level" class="filter-chip" :class="{ active: form.difficulty === level }" @tap="form.difficulty = level as Question['difficulty']">{{ level }}</button></view>
         <TagPicker v-model="form.tags" :subject="form.subject || '未分类'" />
 
         <view class="editor-section-heading"><text>答案与解析</text><text class="optional">可稍后补充</text></view>
@@ -365,12 +365,12 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         </view>
       </view>
     </view></scroll-view>
-    <view class="editor-draft-status"><view class="draft-state-dot" :class="{ 'draft-state-error': draftState === 'error', 'draft-state-saving': draftState === 'saving' }" /><text>{{ aiResult ? 'AI 建议待你确认，尚未更新题目' : aiLoading ? '原题已保留，整理完成后再确认' : pendingDraft || draftReadError ? '上次草稿待处理' : draftState === 'error' ? '修改暂未保存，请保留当前页面' : draftState === 'saving' ? '正在保存草稿…' : draftState === 'saved' ? '修改已存为草稿，确认保存后更新题目' : isPending ? '保存到待处理可稍后继续；完成整理后加入错题本' : '核对后保存本次修改' }}</text></view>
+    <view class="editor-draft-status"><view class="draft-state-dot" :class="{ 'draft-state-error': draftState === 'error', 'draft-state-saving': draftState === 'saving' }" /><text>{{ aiResult ? 'AI 建议待你确认，尚未更新题目' : aiLoading ? '正在生成整理建议，完成后再核对保存' : pendingDraft || draftReadError ? '上次的修改待恢复' : draftState === 'error' ? '修改暂未保存，请保留当前页面' : draftState === 'saving' ? '正在保存草稿…' : draftState === 'saved' ? '修改已存为草稿，确认保存后更新题目' : isPending ? props.question ? '题目已收录 · 待整理，可稍后继续' : '保存题目即可收录，分类与解析可稍后补充' : '核对后保存本次修改' }}</text></view>
     <text v-if="isPending && !canComplete && !aiLoading && !aiResult" class="organization-completion-hint">完成整理前，请选择科目和难度。</text>
     <view class="modal-footer organization-footer">
-      <template v-if="aiResult"><button class="button button-quiet ai-edit-result" :disabled="loading" @tap="editAiResult">修改内容</button><button class="button button-primary ai-confirm-save" :disabled="loading || aiResultStale || !!pendingDraft || !!draftReadError" :loading="loading" @tap="confirmAiResult"><AppIcon name="check" :size="17" tone="white" /><text>{{ isPending ? '确认并入库' : '确认并保存' }}</text></button></template>
-      <button v-else-if="aiLoading" class="button button-quiet editor-close-action" @tap="requestClose">返回待处理</button>
-      <template v-else><button class="button button-quiet editor-close-action" :disabled="loading || selectingRemarkImages" @tap="requestClose">返回</button><button v-if="isPending" class="button button-quiet editor-save-progress" :loading="loading && savingMode === 'progress'" :disabled="loading || selectingImage || selectingRemarkImages" @tap="save('progress')">保存到待处理</button><button class="button button-primary editor-save-complete" :loading="loading && savingMode === 'complete'" :disabled="loading || selectingImage || selectingRemarkImages || !canComplete" @tap="save('complete')"><AppIcon name="check" :size="17" tone="white" /><text>{{ selectingRemarkImages ? '正在添加图片…' : isPending ? '完成整理' : '保存修改' }}</text></button></template>
+      <template v-if="aiResult"><button class="button button-quiet ai-edit-result" :disabled="loading" @tap="editAiResult">修改内容</button><button class="button button-primary ai-confirm-save" :disabled="loading || aiResultStale || !!pendingDraft || !!draftReadError" :loading="loading" @tap="confirmAiResult"><AppIcon name="check" :size="17" tone="white" /><text>保存整理结果</text></button></template>
+      <button v-else-if="aiLoading" class="button button-quiet editor-close-action" @tap="requestClose">{{ props.question ? '返回待整理' : '返回' }}</button>
+      <template v-else><button class="button button-quiet editor-close-action" :disabled="loading || selectingRemarkImages" @tap="requestClose">返回</button><button v-if="isPending" class="button button-quiet editor-save-progress" :loading="loading && savingMode === 'progress'" :disabled="loading || selectingImage || selectingRemarkImages" @tap="save('progress')">保存进度</button><button class="button button-primary editor-save-complete" :loading="loading && savingMode === 'complete'" :disabled="loading || selectingImage || selectingRemarkImages || !canComplete" @tap="save('complete')"><AppIcon name="check" :size="17" tone="white" /><text>{{ selectingRemarkImages ? '正在添加图片…' : isPending ? '完成整理' : '保存修改' }}</text></button></template>
     </view>
   </view>
   <view v-if="closeConfirm" class="editor-confirm-overlay" @tap.stop><view class="editor-confirm-dialog"><view class="confirm-symbol"><AppIcon name="notebook-pen" :size="24" tone="green" /></view><text class="editor-confirm-title">{{ closeConfirm === 'leave-ai' ? '整理结果还未确认' : closeConfirm === 'discard' ? '草稿没有保存成功' : '保存修改，稍后继续？' }}</text><text class="editor-confirm-copy">{{ closeConfirm === 'leave-ai' ? '原题会保留，离开后这次 AI 建议不再保留。也可以返回继续核对。' : closeConfirm === 'discard' ? '当前修改尚未保存，确认离开将放弃这次修改。' : '修改会单独存为草稿，下次可以继续；原题暂不改变。' }}</text><view class="editor-confirm-actions"><button class="button button-quiet" @tap="closeConfirm = null">{{ closeConfirm === 'leave-ai' ? '继续核对' : '继续编辑' }}</button><button class="button" :class="closeConfirm === 'discard' ? 'confirm-discard-button' : 'button-primary'" @tap="confirmClose">{{ closeConfirm === 'leave-ai' ? '保留原题并离开' : closeConfirm === 'discard' ? '确认放弃' : '保存草稿并离开' }}</button></view></view></view>

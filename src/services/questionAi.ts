@@ -1,6 +1,6 @@
 import { normalizeSubject, normalizeTags } from '../domain/taxonomy'
 import type { Difficulty } from '../domain/types'
-import { imageAsDataUrl } from './studyStorage'
+import { cloudEnabled, cloudImageReference, imageAsDataUrl } from './studyStorage'
 
 export interface GeneratedQuestion {
   title: string
@@ -27,8 +27,16 @@ export class GenerationCancelledError extends Error {
 const MAX_PAYLOAD = 900 * 1024
 function payloadBytes(text: string) { return encodeURIComponent(text).replace(/%[A-F\d]{2}/gi, 'x').length }
 
-async function prepareImage(source: string, budget: number): Promise<string> {
+async function prepareImage(source: string, budget: number, targetEndpoint: string): Promise<string> {
   // #ifdef H5
+  const target = new URL(targetEndpoint, window.location.href)
+  // Only our authenticated, same-origin VPS endpoint understands private media
+  // references. The upload cache also covers images saved in the current view,
+  // whose reactive question still carries the original data URL until reload.
+  if (cloudEnabled() && target.origin === window.location.origin && target.pathname === '/api/question-generate' && !target.search && !target.hash && !target.username && !target.password) {
+    const reference = cloudImageReference(source)
+    if (reference) return reference
+  }
   if (/^\/api\/media\/[a-f0-9]{64}$/.test(source)) source = await imageAsDataUrl(source)
   if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(source)) throw new Error('请重新上传 JPG、PNG 或 WebP 题图后识别')
   if (source.length <= budget) return source
@@ -282,7 +290,7 @@ export function startQuestionGeneration(input: GenerationInput, handlers: Genera
     const images: string[] = []
     for (const source of input.images) {
       if (cancelled) throw new GenerationCancelledError()
-      images.push(await prepareImage(source, budget))
+      images.push(await prepareImage(source, budget, url))
     }
     if (cancelled) throw new GenerationCancelledError()
     // An unclassified pending question has no subject hint; the model classifies it.

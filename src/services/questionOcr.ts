@@ -93,7 +93,7 @@ function startBrowserOcr(images: string[], onProgress: (progress: OcrProgress) =
     }
     worker.onerror = event => { event.preventDefault(); stop(new Error('本地识字资源未能加载，请检查网络，或先保存原图')) }
     worker.onmessageerror = () => stop(new Error('文字识别中断，请先保存原图后重试'))
-    timeout = setTimeout(() => stop(new Error('识别用时较长，已停止本次识别。原图仍保留，可以先存入待处理。')), 120000)
+    timeout = setTimeout(() => stop(new Error('识别用时较长，已停止本次识别。原图仍保留，可以先收录，稍后整理。')), 120000)
     await request('load', { options: { lstmOnly: true, corePath: `${base}core`, logging: false } })
     await request('loadLanguage', { langs: ['chi_sim', 'eng'], options: {
       langPath: `${base}lang`, cachePath: 'shiti-ocr-v7', cacheMethod: 'write', gzip: true, lstmOnly: true,

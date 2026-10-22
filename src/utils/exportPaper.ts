@@ -101,7 +101,7 @@ function imageParagraph(image: EmbeddedImage, index: number): string {
 export async function exportPaper(paper: PaperForExport, questions: Question[], includeAnswers: boolean): Promise<void> {
   const selected = paper.questionIds.map(id => questions.find(question => question.id === id)).filter((question): question is Question => !!question)
   if (!selected.length) throw new Error('请先为试卷添加题目')
-  if (selected.some(question => question.organizationStatus === 'pending')) throw new Error('待处理题目暂不能导出练习卷，请先完成整理。')
+  if (selected.some(question => question.organizationStatus === 'pending')) throw new Error('待整理题目暂不能导出练习卷，请先完成整理。')
   const title = paper.title.trim() || '我的错题练习卷'
   const images: EmbeddedImage[] = []
   let missingImages = 0

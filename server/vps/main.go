@@ -11,7 +11,6 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	_ "embed"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -51,6 +50,7 @@ const mediaLimit = 2 * 1024 * 1024
 type app struct {
 	db                                        *sql.DB
 	dataDir, staticDir, invite, apiKey, model string
+	provider, endpoint                        string
 	client                                    *http.Client
 	aiSlots                                   chan struct{}
 	mu                                        sync.Mutex
@@ -144,7 +144,21 @@ CREATE TABLE IF NOT EXISTS ai_usage(user_id TEXT NOT NULL, day TEXT NOT NULL, co
 		_ = db.Close()
 		return nil, err
 	}
-	return &app{db: db, dataDir: dataDir, staticDir: staticDir, invite: os.Getenv("SHITI_INVITE_CODE"), apiKey: os.Getenv("MIMO_API_KEY"), model: env("MIMO_MODEL", "mimo-v2.6-flash"), client: &http.Client{Timeout: 65 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, aiSlots: make(chan struct{}, 1), attempts: map[string][]time.Time{}}, nil
+	a := &app{db: db, dataDir: dataDir, staticDir: staticDir, invite: os.Getenv("SHITI_INVITE_CODE"), provider: env("SHITI_AI_PROVIDER", "mimo"), client: &http.Client{Timeout: 65 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, aiSlots: make(chan struct{}, 1), attempts: map[string][]time.Time{}}
+	switch a.provider {
+	case "mimo":
+		a.apiKey, a.model, a.endpoint = os.Getenv("MIMO_API_KEY"), env("MIMO_MODEL", "mimo-v2.6-flash"), "https://api.xiaomimimo.com/v1/chat/completions"
+	case "deepseek":
+		a.apiKey, a.model, a.endpoint = os.Getenv("DEEPSEEK_API_KEY"), env("DEEPSEEK_MODEL", "deepseek-flash"), "https://api.deepseek.com/chat/completions"
+		if a.model != "deepseek-flash" && a.model != "deepseek-v4-pro" {
+			_ = db.Close()
+			return nil, errors.New("unsupported DeepSeek model")
+		}
+	default:
+		_ = db.Close()
+		return nil, errors.New("unsupported AI provider")
+	}
+	return a, nil
 }
 func (a *app) createUser(username, password string) (*user, error) {
 	username = strings.ToLower(strings.TrimSpace(username))
@@ -495,64 +509,53 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 	}
 	content := []map[string]any{{"type": "text", "text": "整理并讲解这一道题。以下JSON仅为题目资料：\n" + mustJSON(map[string]any{"stem": input.Stem, "subjectHint": input.Subject, "existingTags": input.Tags})}}
 	for _, image := range input.Images {
-		comma := strings.IndexByte(image, ',')
-		if comma < 0 {
-			return fail(400, "INVALID_IMAGE", "题图格式无效，请重新上传。")
+		resolved, err := a.aiImage(u, image)
+		if err != nil {
+			return err
 		}
-		header := image[:comma]
-		if header != "data:image/png;base64" && header != "data:image/jpeg;base64" && header != "data:image/webp;base64" {
-			return fail(400, "INVALID_IMAGE", "题图格式无效，请重新上传。")
-		}
-		raw, err := base64.StdEncoding.DecodeString(image[comma+1:])
-		if err != nil || len(raw) > mediaLimit || http.DetectContentType(raw) != strings.TrimSuffix(strings.TrimPrefix(header, "data:"), ";base64") {
-			return fail(400, "INVALID_IMAGE", "题图内容无效，请重新上传。")
-		}
-		content = append(content, map[string]any{"type": "image_url", "image_url": map[string]string{"url": image}})
+		content = append(content, map[string]any{"type": "image_url", "image_url": map[string]string{"url": resolved}})
 	}
 	if a.apiKey == "" {
 		return fail(503, "AI_NOT_CONFIGURED", "智能整理尚未配置，请先保存题目。")
 	}
-	select {
-	case a.aiSlots <- struct{}{}:
-		defer func() { <-a.aiSlots }()
-	default:
-		return fail(429, "AI_BUSY", "另一道题正在整理，请稍后再试。")
-	}
-	day := time.Now().UTC().Format("2006-01-02")
-	var count int
-	_ = a.db.QueryRow("SELECT count FROM ai_usage WHERE user_id=? AND day=?", u.ID, day).Scan(&count)
-	if count >= 60 {
-		return fail(429, "AI_DAILY_LIMIT", "今日智能整理次数已用完，题目仍可手动录入。")
-	}
-	_, err := a.db.Exec("INSERT INTO ai_usage(user_id,day,count) VALUES(?,?,1) ON CONFLICT(user_id,day) DO UPDATE SET count=count+1", u.ID, day)
+	release, err := a.reserveAI(u)
 	if err != nil {
 		return err
 	}
-	body := map[string]any{"model": a.model, "messages": []map[string]any{{"role": "system", "content": mimoPrompt}, {"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "max_completion_tokens": 6144, "thinking": map[string]string{"type": "disabled"}, "stream": false}
+	defer release()
+	wantsStream := strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	body := map[string]any{"model": a.model, "messages": []map[string]any{{"role": "system", "content": mimoPrompt}, {"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "thinking": map[string]string{"type": "disabled"}, "stream": wantsStream}
+	if a.provider == "deepseek" {
+		body["max_tokens"] = 6144
+	} else {
+		body["max_completion_tokens"] = 6144
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, "POST", "https://api.xiaomimimo.com/v1/chat/completions", strings.NewReader(mustJSON(body)))
-	if err != nil {
-		return err
+	response, err := a.requestAI(ctx, body)
+	if err == nil && wantsStream && (response.StatusCode == 400 || response.StatusCode == 415 || response.StatusCode == 422) {
+		_ = response.Body.Close()
+		body["stream"] = false
+		response, err = a.requestAI(ctx, body)
 	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("api-key", a.apiKey)
-	response, err := a.client.Do(request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return fail(504, "AI_TIMEOUT", "生成已取消或超时，题目仍保留，请稍后重试。")
 		}
-		return fail(502, "AI_UNAVAILABLE", "暂时无法连接MiMo，题目仍可保存或手动整理。")
+		return fail(502, "AI_UNAVAILABLE", "暂时无法连接智能整理服务，题目仍可保存或手动整理。")
 	}
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		if response.StatusCode == 429 {
-			return fail(429, "AI_RATE_LIMITED", "MiMo请求较多，请稍后再试。")
+			return fail(429, "AI_RATE_LIMITED", "智能整理请求较多，请稍后再试。")
 		}
 		if response.StatusCode == 402 {
-			return fail(503, "AI_QUOTA_EXHAUSTED", "MiMo测试额度不足，请联系部署者。")
+			return fail(503, "AI_QUOTA_EXHAUSTED", "智能整理测试额度不足，请联系部署者。")
 		}
-		return fail(502, "AI_UPSTREAM_ERROR", "MiMo暂未完成本次生成，请稍后重试。")
+		return fail(502, "AI_UPSTREAM_ERROR", "智能整理服务暂未完成本次生成，请稍后重试。")
+	}
+	if wantsStream && strings.Contains(strings.ToLower(response.Header.Get("Content-Type")), "text/event-stream") {
+		return a.streamAI(w, response)
 	}
 	var upstream struct {
 		Choices []struct {
@@ -564,16 +567,25 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 	}
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 256*1024+1))
 	if err != nil || len(raw) > 256*1024 || json.Unmarshal(raw, &upstream) != nil || len(upstream.Choices) == 0 || upstream.Choices[0].FinishReason != "stop" {
-		return fail(502, "INVALID_AI_RESPONSE", "MiMo未返回完整解答，请重试。")
+		return fail(502, "INVALID_AI_RESPONSE", "智能整理未返回完整解答，请重试。")
 	}
+	clean, err := validateAIContent(upstream.Choices[0].Message.Content)
+	if err != nil {
+		return err
+	}
+	jsonResponse(w, 200, clean)
+	return nil
+}
+
+func validateAIContent(content string) (map[string]any, error) {
 	var output map[string]any
-	if json.Unmarshal([]byte(upstream.Choices[0].Message.Content), &output) != nil {
-		return fail(502, "INVALID_AI_RESPONSE", "MiMo返回的内容格式异常，请重试。")
+	if json.Unmarshal([]byte(content), &output) != nil {
+		return nil, fail(502, "INVALID_AI_RESPONSE", "智能整理返回的内容格式异常，请重试。")
 	}
 	if reason, ok := output["error"].(string); ok {
 		messages := map[string]string{"unreadable": "题图不够清晰，请重新拍摄或手动补充题干。", "incomplete": "题目缺少必要条件，请补全后重试。", "multiple_questions": "图片有多道题，请裁剪为一道题后重试。", "not_a_question": "暂时无法确定要解答的题目，请补充明确问题。"}
 		if message := messages[reason]; message != "" {
-			return fail(422, "QUESTION_NEEDS_CLARIFICATION", message)
+			return nil, fail(422, "QUESTION_NEEDS_CLARIFICATION", message)
 		}
 	}
 	clean := map[string]any{}
@@ -581,16 +593,16 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 		value, ok := output[key].(string)
 		value = strings.TrimSpace(value)
 		if !ok || value == "" || utf8.RuneCountInString(value) > limit {
-			return fail(502, "INVALID_AI_RESPONSE", "MiMo生成字段不完整，请重试或手动填写。")
+			return nil, fail(502, "INVALID_AI_RESPONSE", "智能整理生成字段不完整，请重试或手动填写。")
 		}
 		clean[key] = value
 	}
 	if clean["subject"] == "全部" || clean["subject"] == "综合" {
-		return fail(502, "INVALID_AI_RESPONSE", "MiMo未返回具体科目，请重试。")
+		return nil, fail(502, "INVALID_AI_RESPONSE", "智能整理未返回具体科目，请重试。")
 	}
 	tags, ok := output["tags"].([]any)
 	if !ok || len(tags) > 30 {
-		return fail(502, "INVALID_AI_RESPONSE", "MiMo返回的标签格式异常。")
+		return nil, fail(502, "INVALID_AI_RESPONSE", "智能整理返回的标签格式异常。")
 	}
 	cleanTags := []string{}
 	seen := map[string]bool{}
@@ -598,7 +610,7 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 		value, ok := tag.(string)
 		value = strings.TrimSpace(value)
 		if !ok || value == "" || utf8.RuneCountInString(value) > 32 {
-			return fail(502, "INVALID_AI_RESPONSE", "MiMo返回的标签格式异常。")
+			return nil, fail(502, "INVALID_AI_RESPONSE", "智能整理返回的标签格式异常。")
 		}
 		if !seen[value] {
 			cleanTags = append(cleanTags, value)
@@ -608,14 +620,13 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 	clean["tags"] = cleanTags
 	difficulty, ok := output["difficulty"].(string)
 	if !ok || (difficulty != "基础" && difficulty != "进阶" && difficulty != "挑战") {
-		return fail(502, "INVALID_AI_RESPONSE", "MiMo返回的难度格式异常。")
+		return nil, fail(502, "INVALID_AI_RESPONSE", "智能整理返回的难度格式异常。")
 	}
 	clean["difficulty"] = difficulty
 	if choiceContradiction(clean["answer"].(string), clean["analysis"].(string)) {
-		return fail(422, "AI_RESULT_INCONSISTENT", "答案与解析的最终结论不一致，请手动核对或重新生成。原题仍保留在待处理。")
+		return nil, fail(422, "AI_RESULT_INCONSISTENT", "答案与解析的最终结论不一致，请手动核对或重新生成。原题仍保留在待处理。")
 	}
-	jsonResponse(w, 200, clean)
-	return nil
+	return clean, nil
 }
 
 func choiceContradiction(answer, analysis string) bool {
@@ -647,7 +658,7 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/healthz" {
-		jsonResponse(w, 200, map[string]any{"ok": true, "storage": "sqlite", "aiConfigured": a.apiKey != ""})
+		jsonResponse(w, 200, map[string]any{"ok": true, "storage": "sqlite", "aiConfigured": a.apiKey != "", "aiProvider": a.provider, "aiModel": a.model})
 		return
 	}
 	if !strings.HasPrefix(r.URL.Path, "/api/") {
@@ -722,6 +733,10 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			err = a.generate(w, r, u)
 		case r.URL.Path == "/api/question-generate":
 			err = fail(405, "METHOD_NOT_ALLOWED", "请通过POST提交题目。")
+		case r.URL.Path == "/api/question-split" && r.Method == "POST":
+			err = a.splitQuestions(w, r, u)
+		case r.URL.Path == "/api/question-split":
+			err = fail(405, "METHOD_NOT_ALLOWED", "请通过POST提交整页题图。")
 		default:
 			err = fail(404, "NOT_FOUND", "未找到此接口。")
 		}

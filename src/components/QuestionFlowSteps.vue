@@ -4,9 +4,9 @@ defineProps<{ active: 1 | 2 }>()
 
 <template>
   <view class="question-flow-steps" aria-label="录题流程">
-    <view class="flow-step" :class="{ 'flow-current': active === 1, 'flow-done': active === 2 }" :aria-current="active === 1 ? 'step' : undefined"><text class="flow-number">{{ active === 2 ? '✓' : '1' }}</text><view><text>录入题目</text><text>文字或题图</text></view></view>
+    <view class="flow-step" :class="{ 'flow-current': active === 1, 'flow-done': active === 2 }" :aria-current="active === 1 ? 'step' : undefined"><text class="flow-number">{{ active === 2 ? '✓' : '1' }}</text><view><text>收录题目</text><text>文字或图片即可保存</text></view></view>
     <view class="flow-connector" />
-    <view class="flow-step" :class="{ 'flow-current': active === 2 }" :aria-current="active === 2 ? 'step' : undefined"><text class="flow-number">2</text><view><text>核对入库</text><text>AI 辅助或手动整理</text></view></view>
+    <view class="flow-step" :class="{ 'flow-current': active === 2 }" :aria-current="active === 2 ? 'step' : undefined"><text class="flow-number">2</text><view><text>补充整理（可选）</text><text>AI 辅助或手动补充</text></view></view>
   </view>
 </template>
 
