@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
+import MathText from './MathText.vue'
 import AttachmentGallery from './AttachmentGallery.vue'
 import { useStudyStore } from '../domain/store'
 import type { Subject } from '../domain/types'
@@ -119,7 +120,7 @@ function removeNote() {
         <template v-if="detail">
           <view class="reader-top"><text class="badge reader-subject" :title="detail.subject">{{ detail.subject }} · 知识笔记</text><view class="reader-top-actions"><button class="icon-button" aria-label="编辑笔记" @click="openEditor(detail.id)"><AppIcon name="pencil" :size="18" tone="green" /></button><button class="icon-button reader-close" aria-label="关闭笔记详情" @click="detailId = null"><AppIcon name="x" :size="20" tone="muted" /></button></view></view>
           <text class="reader-title">{{ detail.title }}</text>
-          <text class="reader-content">{{ detail.content }}</text>
+          <MathText :text="detail.content" class="reader-content" />
           <AttachmentGallery v-if="detail.images?.length" :model-value="detail.images" readonly label="笔记附图" />
           <view class="related-heading"><text class="related-title">关联错题</text><text class="related-count">{{ relatedQuestions.length }} 道</text></view>
           <view v-if="relatedQuestions.length" class="related-list"><view v-for="question in relatedQuestions" :key="question.id" class="related-question" @click="emit('open-question', question.id)"><view class="related-question-body"><text class="related-question-title">{{ question.title }}</text><text class="related-question-status">{{ question.status === 'mastered' ? '已掌握' : '待巩固' }}</text></view><AppIcon name="chevron-right" :size="17" tone="muted" /></view><button class="button button-quiet practice-linked" @click="emit('practice', relatedQuestions.map(question => question.id))"><AppIcon name="play" :size="16" tone="green" /><text>复习关联错题</text></button></view>
@@ -139,7 +140,7 @@ function removeNote() {
         <AttachmentGallery v-model="images" label="笔记附图" :disabled="saving" @busy="selectingImages = $event" />
         <view class="field-label-row"><text class="field-label">关联错题</text><text class="field-caption">已选 {{ linkedIds.length }} 道 · 可跨学科保留</text></view>
         <view class="search-field association-search"><AppIcon name="search" :size="17" tone="muted" /><input v-model="questionSearch" class="search-input" :placeholder="`搜索${subject}错题`" /></view>
-        <view v-if="selectableQuestions.length" class="association-list"><view v-for="question in selectableQuestions" :key="question.id" class="association-question" @click="toggleQuestion(question.id)"><view class="selection-box" :class="{ checked: linkedIds.includes(question.id) }"><AppIcon v-if="linkedIds.includes(question.id)" name="check" :size="14" tone="white" /></view><view class="association-body"><text>{{ question.title }}</text><text class="association-stem">{{ question.stem }}</text></view></view></view><text v-else class="association-empty">当前学科没有匹配的错题，先保存笔记也可以。</text>
+        <view v-if="selectableQuestions.length" class="association-list"><view v-for="question in selectableQuestions" :key="question.id" class="association-question" @click="toggleQuestion(question.id)"><view class="selection-box" :class="{ checked: linkedIds.includes(question.id) }"><AppIcon v-if="linkedIds.includes(question.id)" name="check" :size="14" tone="white" /></view><view class="association-body"><text>{{ question.title }}</text><MathText inline :text="question.stem" class="association-stem" /></view></view></view><text v-else class="association-empty">当前学科没有匹配的错题，先保存笔记也可以。</text>
       </view></scroll-view>
       <view class="editor-actions"><button class="button button-quiet" :disabled="saving || selectingImages" @click="closeEditor">取消</button><button class="button button-primary" :disabled="saving || selectingImages" @click="save"><AppIcon name="check" :size="17" tone="white" /><text>{{ saving ? '保存中…' : selectingImages ? '正在添加图片…' : '保存笔记' }}</text></button></view>
     </view></view>

@@ -5,6 +5,7 @@ import type { Question, QuestionInput } from '../domain/types'
 import { clearQuestionDraft, readQuestionDraft, writeQuestionDraft } from '../utils/draft'
 import type { QuestionDraft, QuestionDraftForm } from '../utils/draft'
 import AppIcon from './AppIcon.vue'
+import MathText from './MathText.vue'
 import QuestionFlowSteps from './QuestionFlowSteps.vue'
 import TagPicker from './TagPicker.vue'
 import AttachmentGallery from './AttachmentGallery.vue'
@@ -20,6 +21,7 @@ const selectingImage = ref(false)
 const selectingRemarkImages = ref(false)
 const remarkScrollTarget = ref('')
 const metadataOpen = ref(false)
+function hasFormula(value: string) { return value.includes('\\') || value.includes('$') }
 // Keep the editing session's intent stable if a storage failure leaves an in-memory update.
 const isPending = !props.question || props.question.organizationStatus === 'pending'
 const savingMode = ref<'progress' | 'complete' | null>(null)
@@ -319,7 +321,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <button class="button button-primary ai-generate-button" :disabled="aiLoading || loading || selectingImage || selectingRemarkImages || !!pendingDraft || !!draftReadError || (!form.stem.trim() && !form.images.length)" :loading="aiLoading" @tap="generateWithMiMo"><AppIcon v-if="!aiLoading" name="sparkles" :size="17" tone="white" /><text>{{ aiButtonLabel }}</text></button>
         <view v-if="aiLoading" class="ai-stream-panel" aria-live="polite">
           <view class="ai-stream-heading"><AppIcon name="scan-line" :size="15" tone="green" /><text>{{ aiStemLabel }}</text></view>
-          <text v-if="aiStreamStem" class="ai-stream-stem">{{ aiStreamStem }}</text>
+          <MathText v-if="aiStreamStem" :text="aiStreamStem" class="ai-stream-stem" />
           <text v-else class="ai-stream-placeholder">题图已收到，通常 1 秒左右先出题干。</text>
           <text class="ai-stream-hint">{{ aiStreamStem ? '解析继续生成中，完成后由你核对确认。' : '识别到完整题干后会先显示在这里。' }}</text>
         </view>
@@ -330,14 +332,15 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <view class="ai-result-heading"><AppIcon name="check-circle-2" :size="18" tone="green" /><text>请核对整理结果</text><text class="badge">{{ aiResult.subject }} · {{ aiResult.difficulty }}</text></view>
         <text class="ai-result-title">{{ aiResult.title }}</text>
         <view v-if="form.images.length" class="ai-source-images"><text>对照原图</text><view class="image-previews"><view v-for="image in form.images" :key="image" class="image-preview"><image :src="image" mode="aspectFit" @tap="previewImage(image)" /></view></view></view>
-        <view class="ai-result-copy"><text class="ai-result-label">题目内容</text><text>{{ aiResult.stem }}</text><text class="ai-result-label">参考答案</text><text>{{ aiResult.answer }}</text><text class="ai-result-label">解题解析</text><text>{{ aiResult.analysis }}</text><text v-if="aiResult.tags.length" class="ai-result-label">检索标签</text><text v-if="aiResult.tags.length" class="ai-result-tags">{{ aiResult.tags.join(' · ') }}</text></view>
+        <view class="ai-result-copy"><text class="ai-result-label">题目内容</text><MathText :text="aiResult.stem" class="ai-result-math" /><text class="ai-result-label">参考答案</text><MathText :text="aiResult.answer" class="ai-result-math" /><text class="ai-result-label">解题解析</text><MathText :text="aiResult.analysis" class="ai-result-math" /><text v-if="aiResult.tags.length" class="ai-result-label">检索标签</text><text v-if="aiResult.tags.length" class="ai-result-tags">{{ aiResult.tags.join(' · ') }}</text></view>
         <text class="ai-apply-hint" :class="{ 'ai-error': aiResultStale }">{{ aiResultStale ? '题目信息已更改，请返回修改或重新生成。' : '核对无误后保存整理结果；需要调整时，先修改内容。' }}</text>
       </view>
 
       <view v-show="!aiLoading && !aiResult" class="editor-manual-form">
         <view class="editor-section-heading"><text>核对题目</text><button class="text-button editor-add-image" :disabled="selectingImage || loading || form.images.length >= 3" @tap="chooseImage"><AppIcon name="image" :size="15" tone="green" /><text>{{ selectingImage ? '正在添加…' : '添加题图' }}</text></button></view>
         <view v-if="form.images.length" class="image-previews"><view v-for="(image, index) in form.images" :key="image" class="image-preview"><image :src="image" mode="aspectFit" @tap="previewImage(image)" /><button class="remove-image" aria-label="移除图片" @tap="form.images.splice(index, 1)"><AppIcon name="x" :size="12" tone="white" /></button></view></view>
-        <text class="field-label">题目内容 <text class="optional">与题图至少保留一项</text></text><textarea v-model="form.stem" class="form-textarea editor-stem" maxlength="5000" placeholder="核对题干、公式和选项…" /><text class="field-counter">{{ form.stem.length }} / 5000</text>
+        <text class="field-label">题目内容 <text class="optional">与题图至少保留一项</text></text><textarea v-model="form.stem" class="form-textarea editor-stem" maxlength="5000" placeholder="核对题干、公式和选项…" /><text class="field-counter">{{ form.stem.length }} / 5000</text><view v-if="hasFormula(form.stem)" class="editor-formula-preview"><text>题目预览</text><MathText :text="form.stem" /></view>
+        <view class="editor-personal-answer"><view class="form-label-row"><text class="field-label">我的答案 <text class="optional">选填</text></text><text class="personal-answer-tip">记录自己的作答，与参考答案分开保存</text></view><textarea v-model="form.userAnswer" class="form-textarea short editor-user-answer" maxlength="5000" placeholder="写下当时的答案或思路，也可以留空…" aria-label="我的答案" /><text class="field-counter">{{ form.userAnswer.length }} / 5000</text><view v-if="hasFormula(form.userAnswer)" class="editor-formula-preview"><text>我的答案预览</text><MathText :text="form.userAnswer" /></view></view>
 
         <view class="editor-section-heading"><text>分类与标签</text></view>
         <view class="form-label-row"><text class="field-label">科目 <text class="optional">完成整理时必选</text></text><button class="custom-subject-toggle" @tap="customSubjectOpen = !customSubjectOpen"><AppIcon name="plus" :size="13" tone="green" /><text>自定义科目</text></button></view>
@@ -347,8 +350,8 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <TagPicker v-model="form.tags" :subject="form.subject || '未分类'" />
 
         <view class="editor-section-heading"><text>答案与解析</text><text class="optional">可稍后补充</text></view>
-        <text class="field-label">参考答案</text><textarea v-model="form.answer" class="form-textarea short editor-answer" maxlength="5000" placeholder="正确答案是什么？" /><text class="field-counter">{{ form.answer.length }} / 5000</text>
-        <text class="field-label">解题解析</text><textarea v-model="form.analysis" class="form-textarea editor-analysis" maxlength="10000" placeholder="记录解题步骤与关键结论…" /><text class="field-counter">{{ form.analysis.length }} / 10000</text>
+        <text class="field-label">参考答案</text><textarea v-model="form.answer" class="form-textarea short editor-answer" maxlength="5000" placeholder="正确答案是什么？" /><text class="field-counter">{{ form.answer.length }} / 5000</text><view v-if="hasFormula(form.answer)" class="editor-formula-preview"><text>参考答案预览</text><MathText :text="form.answer" /></view>
+        <text class="field-label">解题解析</text><textarea v-model="form.analysis" class="form-textarea editor-analysis" maxlength="10000" placeholder="记录解题步骤与关键结论…" /><text class="field-counter">{{ form.analysis.length }} / 10000</text><view v-if="hasFormula(form.analysis)" class="editor-formula-preview"><text>解析预览</text><MathText :text="form.analysis" /></view>
 
         <view id="question-remark-section" class="editor-remark-section">
           <view class="editor-section-heading"><view><AppIcon name="notebook-pen" :size="16" tone="green" /><text>补充说明</text></view><text class="optional">选填</text></view>
@@ -357,11 +360,11 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
           <AttachmentGallery v-model="form.remarkImages" label="备注附图" :disabled="loading || aiLoading || selectingImage" @busy="selectingRemarkImages = $event" />
         </view>
 
-        <button class="editor-metadata-toggle" :aria-expanded="metadataOpen" @tap="metadataOpen = !metadataOpen"><AppIcon name="notebook-pen" :size="16" tone="muted" /><text>标题、来源与原作答</text><text class="optional">选填</text><AppIcon name="chevron-down" :class="{ 'metadata-expanded': metadataOpen }" :size="15" tone="muted" /></button>
+        <button class="editor-metadata-toggle" :aria-expanded="metadataOpen" @tap="metadataOpen = !metadataOpen"><AppIcon name="notebook-pen" :size="16" tone="muted" /><text>标题与来源</text><text class="optional">选填</text><AppIcon name="chevron-down" :class="{ 'metadata-expanded': metadataOpen }" :size="15" tone="muted" /></button>
         <view v-if="metadataOpen" class="editor-metadata">
           <text class="field-label">题目标题</text><input v-model="form.title" class="form-input editor-title" maxlength="60" placeholder="留空时会根据题干命名" />
           <text class="field-label">题目来源</text><input v-model="form.source" class="form-input editor-source" maxlength="120" placeholder="例如：周测 · 第 8 题" />
-          <text class="field-label">我的原作答</text><textarea v-model="form.userAnswer" class="form-textarea short editor-user-answer" maxlength="5000" placeholder="保留当时的答案或思路…" /><text class="field-counter">{{ form.userAnswer.length }} / 5000</text>
+
         </view>
       </view>
     </view></scroll-view>
@@ -378,6 +381,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
 </template>
 
 <style scoped>
+.editor-personal-answer{margin:17px 0 23px}.editor-personal-answer>.form-label-row{gap:10px;flex-wrap:wrap;align-items:baseline}.editor-personal-answer .field-label{margin-bottom:9px}.personal-answer-tip{font-size:10px;line-height:1.7;color:#9aa58d}.editor-formula-preview{min-width:0;margin:9px 0 18px;padding:13px 15px;background:#f6f9f0;border:1px solid #e3ead9;border-radius:9px;font-size:14px;line-height:1.9;color:#52664b}.editor-formula-preview>text{display:block;margin-bottom:8px;font-size:10px;color:#92a080}.ai-result-math{font-size:14px;line-height:1.95;min-width:0;color:#64775a}.ai-capture-panel .ai-stream-stem{max-height:230px;overflow-y:auto}.editor-content{min-width:0}@media(max-width:600px){.personal-answer-tip{font-size:10px}.editor-formula-preview{padding:11px 12px;font-size:13px}.ai-result-math{font-size:13px}.ai-capture-panel .ai-stream-stem{max-height:190px}}
 .editor-remark-section>.editor-section-heading>view{display:flex;align-items:center;gap:7px}.editor-remark-hint{display:block;font-size:11px;line-height:1.8;color:#91a080;margin-bottom:12px}.editor-remark{height:120px;min-height:90px}.editor-remark-section{scroll-margin-top:18px}
 .metadata-expanded{transform:rotate(180deg)}
 .editor-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 0 13px;margin-top:7px;border-top:1px solid #e9eedf;color:#4c7045;font-size:13px;font-weight:600}.editor-section-heading:first-child{border-top:0;margin-top:0;padding-top:0}.editor-add-image{font-size:11px;font-weight:400}.editor-content>.ai-capture-panel{margin:0 0 22px}.editor-content>.ai-result-panel{margin:0}.editor-metadata-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:16px 0;margin:20px 0 0;border-top:1px solid #e6ecdd;background:transparent;font-size:12px;text-align:left;color:#819475}.editor-metadata-toggle>.app-icon:last-child{margin-left:auto}.editor-metadata{padding:4px 0 10px}.ai-source-images{margin:14px 0 19px}.ai-source-images>text{font-size:10px;color:#91a182}.ai-source-images>.image-previews{margin:8px 0}.ai-source-images .image-preview{width:80px;height:70px}.ai-source-images .image-preview>image{background:#f3f6ec}.ai-result-copy>.ai-result-tags{margin-top:0}.organization-footer>.ai-edit-result{margin-left:auto}.organization-footer>.ai-confirm-save{min-width:150px}.editor-manual-form .difficulty-picker{margin-bottom:19px}@media(max-width:600px){.editor-section-heading{font-size:12px;padding-top:18px}.editor-metadata-toggle{font-size:11px}.organization-footer>.ai-confirm-save{min-width:144px}}

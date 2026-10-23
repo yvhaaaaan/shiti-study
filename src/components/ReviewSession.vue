@@ -4,6 +4,7 @@ import { useStudyStore } from '../domain/store'
 import { dayOffset, localDate } from '../domain/seed'
 import type { Question, ReviewRating } from '../domain/types'
 import AppIcon from './AppIcon.vue'
+import MathText from './MathText.vue'
 const props = defineProps<{ ids: string[]; title?: string }>()
 const emit = defineEmits<{ close: [] }>()
 const store = useStudyStore()
@@ -125,10 +126,10 @@ function quit() {
         </view>
       </view>
       <view v-else-if="q" class="review-working"><view class="review-intro"><view><text class="eyebrow">FOCUS ON ONE THING</text><text class="review-page-title">现在，只专注这一题。</text></view><view class="review-counter"><text>{{ String(index + 1).padStart(2, '0') }}</text><text class="counter-total"> / {{ String(items.length).padStart(2, '0') }}</text></view></view><view class="review-progress"><view :style="{ width: `${(index / items.length) * 100}%` }" /></view>
-        <view class="review-question"><view class="review-question-meta"><text class="badge">{{ q.subject }}</text><text v-for="tag in q.tags.slice(0, 2)" :key="tag" class="review-tag">{{ tag }}</text><AppIcon name="sparkles" :size="18" tone="muted" /></view><text class="review-question-title">{{ q.title }}</text><text class="review-stem">{{ q.stem }}</text><image v-for="image in q.images" :key="image" :src="image" mode="widthFix" class="review-image" /><view class="write-answer"><text class="small muted">我的独立作答</text><textarea v-model="answer" class="review-answer-input" maxlength="5000" placeholder="把答案或关键思路写在这里，也可以先在纸上完成…" /></view></view>
+        <view class="review-question"><view class="review-question-meta"><text class="badge">{{ q.subject }}</text><text v-for="tag in q.tags.slice(0, 2)" :key="tag" class="review-tag">{{ tag }}</text><AppIcon name="sparkles" :size="18" tone="muted" /></view><text class="review-question-title">{{ q.title }}</text><MathText :text="q.stem" class="review-stem" /><image v-for="image in q.images" :key="image" :src="image" mode="widthFix" class="review-image" /><view class="write-answer"><text class="small muted">我的独立作答</text><textarea v-model="answer" class="review-answer-input" maxlength="5000" placeholder="把答案或关键思路写在这里，也可以先在纸上完成…" /></view></view>
         <view v-if="!revealed" class="review-before"><text><AppIcon name="lightbulb" :size="14" tone="muted" /> 先尝试回忆，给自己一点思考的时间。</text><button class="button button-primary reveal-button" @tap="revealed = true"><text>我想好了，查看答案</text><AppIcon name="arrow-right" :size="17" tone="white" /></button></view>
         <view v-else>
-          <view class="review-solution"><view class="solution-heading"><AppIcon name="check-circle-2" :size="19" tone="green" /><text>参考答案</text></view><text class="solution-answer">{{ q.answer }}</text><text class="solution-analysis">{{ q.analysis || '对照参考答案，再想一想这道题的关键。' }}</text></view>
+          <view class="review-solution"><view class="solution-heading"><AppIcon name="check-circle-2" :size="19" tone="green" /><text>参考答案</text></view><MathText :text="q.answer" class="solution-answer" /><MathText :text="q.analysis || '对照参考答案，再想一想这道题的关键。'" class="solution-analysis" /></view>
           <view class="review-next-plan">
             <view class="review-plan-heading"><AppIcon name="calendar-days" :size="18" tone="green" /><text>下次什么时候再练？</text><text class="review-plan-optional">可选</text></view>
             <view class="review-date-options">

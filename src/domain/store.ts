@@ -358,7 +358,7 @@ function submitReview(questionId: string, input: ReviewInput): ReviewRecord {
   const review: ReviewRecord = { id: id('review'), questionId, answer: input.answer?.trim() ?? '', rating: input.rating, requestId, reviewedAt: now, questionSnapshot: questionSnapshot(question) }
   if (input.rating !== 'mastered' && input.planDate) review.planDate = input.planDate
   state.reviews.push(review)
-  question.userAnswer = review.answer
+  // Keep the answer recorded on entry; each later attempt belongs to its review.
   question.status = input.rating === 'mastered' ? 'mastered' : 'reinforce'
   question.nextReviewDate = review.planDate
   question.lastReviewedAt = now
