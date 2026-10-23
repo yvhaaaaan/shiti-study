@@ -15,6 +15,8 @@ export interface GenerationInput { stem: string; images: string[]; subject: stri
 export interface GenerationHandlers {
   /** 完整题干从模型流里闭合时触发，用于先上屏。 */
   onStem?: (stem: string) => void
+  /** 尚在生成的解析预览；仅 done 事件才代表完整、已校验的结果。 */
+  onAnalysis?: (analysis: string) => void
   /** 累计的模型正文，用于调试或后续做渐进预览。 */
   onDelta?: (text: string) => void
 }
@@ -115,40 +117,74 @@ function isAbortError(error: unknown): boolean {
   return !!error && typeof error === 'object' && (error as { name?: unknown }).name === 'AbortError'
 }
 
-/** 从尚未闭合的 JSON 文本里读出字符串字段；未闭合或转义不完整时返回 null。 */
-function readJsonStringField(source: string, key: string): string | null {
-  const marker = `"${key}"`
-  let index = source.indexOf(marker)
-  if (index < 0) return null
-  index = source.indexOf(':', index + marker.length)
-  if (index < 0) return null
-  index += 1
-  while (index < source.length && /\s/.test(source[index] as string)) index += 1
-  if (source[index] !== '"') return null
-  index += 1
-  let value = ''
-  while (index < source.length) {
-    const char = source[index] as string
-    if (char === '"') return value
-    if (char === '\\') {
+/** Read only an actual top-level field, never a key inside prose or a nested value.
+ * An unfinished analysis may expose its decoded prefix, excluding partial escapes.
+ * This is a bounded preview parser, not a replacement for final JSON validation. */
+function readJsonStringField(source: string, key: string, partial = false): string | null {
+  if (source.length > 256 * 1024) return null
+  const skipSpace = (start: number) => { while (/\s/.test(source[start] || '') && start < source.length) start++; return start }
+  function stringAt(start: number): { value: string; end: number; complete: boolean } | null {
+    if (source[start] !== '"') return null
+    let value = '', index = start + 1
+    const unfinished = () => ({ value: /[\uD800-\uDBFF]$/.test(value) ? value.slice(0, -1) : value, end: source.length, complete: false })
+    while (index < source.length) {
+      const char = source[index] as string
+      if (char === '"') return { value, end: index + 1, complete: true }
+      if (char.charCodeAt(0) < 0x20) return null
+      if (char !== '\\') { value += char; index++; continue }
       const next = source[index + 1]
-      if (next === undefined) return null
+      if (next === undefined) return unfinished()
       if (next === 'u') {
         const hex = source.slice(index + 2, index + 6)
-        if (!/^[0-9a-fA-F]{4}$/.test(hex)) return null
-        value += String.fromCharCode(parseInt(hex, 16))
-        index += 6
-        continue
+        if (!/^[0-9a-fA-F]*$/.test(hex)) return null
+        if (hex.length < 4) return unfinished()
+        value += String.fromCharCode(parseInt(hex, 16)); index += 6; continue
       }
       const escapes: Record<string, string> = { '"': '"', '\\': '\\', '/': '/', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t' }
       const escaped = escapes[next]
       if (escaped === undefined) return null
-      value += escaped
-      index += 2
-      continue
+      value += escaped; index += 2
     }
-    value += char
-    index += 1
+    return unfinished()
+  }
+  function skipValue(start: number): number {
+    if (source[start] === '"') { const item = stringAt(start); return item?.complete ? item.end : -1 }
+    if (source[start] === '{' || source[start] === '[') {
+      const stack: string[] = []
+      for (let index = start; index < source.length; index++) {
+        const char = source[index]
+        if (char === '"') { const item = stringAt(index); if (!item?.complete) return -1; index = item.end - 1 }
+        else if (char === '{' || char === '[') { stack.push(char); if (stack.length > 32) return -1 }
+        else if (char === '}' || char === ']') {
+          if (stack.pop() !== (char === '}' ? '{' : '[')) return -1
+          if (!stack.length) { try { JSON.parse(source.slice(start, index + 1)); return index + 1 } catch { return -1 } }
+        }
+      }
+      return -1
+    }
+    let end = start
+    while (end < source.length && source[end] !== ',' && source[end] !== '}') end++
+    if (end === source.length) return -1
+    try { JSON.parse(source.slice(start, end)); return end } catch { return -1 }
+  }
+  let index = skipSpace(0)
+  if (source[index++] !== '{') return null
+  while (index < source.length) {
+    index = skipSpace(index)
+    const name = stringAt(index)
+    if (!name?.complete) return null
+    index = skipSpace(name.end)
+    if (source[index++] !== ':') return null
+    index = skipSpace(index)
+    if (name.value === key) {
+      const item = stringAt(index)
+      const limit = key === 'analysis' ? 10000 : 5000
+      return item && item.value.length <= limit && (item.complete || partial) ? item.value : null
+    }
+    index = skipValue(index)
+    if (index < 0) return null
+    index = skipSpace(index)
+    if (source[index++] !== ',') return null
   }
   return null
 }
@@ -170,14 +206,31 @@ async function readEventStream(body: ReadableStream<Uint8Array>, handlers: Gener
   let buffer = ''
   let content = ''
   let stem = ''
-  let result: GeneratedQuestion | null = null
-  let failure: Error | null = null
+  let analysis = ''
+  let lastPreviewAt = 0
+  let previewTimer: ReturnType<typeof setTimeout> | undefined
+  const preview = () => {
+    previewTimer = undefined
+    if (isCancelled()) return
+    lastPreviewAt = Date.now()
+    const nextStem = readJsonStringField(content, 'stem')
+    if (nextStem && nextStem !== stem) { stem = nextStem; handlers.onStem?.(stem) }
+    if (handlers.onAnalysis) {
+      const nextAnalysis = readJsonStringField(content, 'analysis', true)
+      if (nextAnalysis && nextAnalysis !== analysis) { analysis = nextAnalysis; handlers.onAnalysis(nextAnalysis) }
+    }
+  }
+  const schedulePreview = () => {
+    if (Date.now() - lastPreviewAt >= 80) { if (previewTimer) clearTimeout(previewTimer); preview() }
+    else if (!previewTimer) previewTimer = setTimeout(preview, 80 - (Date.now() - lastPreviewAt))
+  }
   try {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
       if (isCancelled()) throw new GenerationCancelledError()
       buffer += decoder.decode(value, { stream: true })
+      if (buffer.length > 512 * 1024) throw new Error('生成内容过长，请裁剪为单道题后重试')
       buffer = buffer.replace(/\r\n/g, '\n')
       let boundary = buffer.indexOf('\n\n')
       while (boundary >= 0) {
@@ -190,14 +243,15 @@ async function readEventStream(body: ReadableStream<Uint8Array>, handlers: Gener
           const chunk = typeof event.data?.text === 'string' ? event.data.text : ''
           if (!chunk) continue
           content += chunk
+          if (content.length > 256 * 1024) throw new Error('生成内容过长，请裁剪为单道题后重试')
           handlers.onDelta?.(content)
-          const nextStem = readJsonStringField(content, 'stem')
-          if (nextStem && nextStem !== stem) { stem = nextStem; handlers.onStem?.(stem) }
+          schedulePreview()
         } else if (event.name === 'done') {
-          result = parseResult(event.data)
+          if (isCancelled()) throw new GenerationCancelledError()
+          return parseResult(event.data)
         } else if (event.name === 'error') {
           const message = event.data?.error?.message
-          failure = new Error(typeof message === 'string' ? message : '本次生成失败，请稍后重试')
+          throw new Error(typeof message === 'string' ? message : '本次生成失败，请稍后重试')
         }
       }
     }
@@ -205,10 +259,10 @@ async function readEventStream(body: ReadableStream<Uint8Array>, handlers: Gener
     if (isCancelled() || isAbortError(error)) throw new GenerationCancelledError()
     throw error
   } finally {
+    if (previewTimer) clearTimeout(previewTimer)
+    try { void reader.cancel().catch(() => {}) } catch {}
     try { reader.releaseLock() } catch {}
   }
-  if (failure) throw failure
-  if (result) return result
   throw new Error('生成结果不完整，请重试')
 }
 

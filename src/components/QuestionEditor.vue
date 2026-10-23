@@ -37,7 +37,9 @@ let aiSequence = 0
 const aiSource = computed(() => JSON.stringify({ title: form.title, stem: form.stem, images: form.images, subject: form.subject, tags: form.tags, answer: form.answer, analysis: form.analysis, difficulty: form.difficulty }))
 const aiResultStale = computed(() => !!aiResult.value && aiInputSnapshot.value !== aiSource.value)
 const aiStreamStem = ref('')
+const aiStreamAnalysis = ref('')
 const aiStemSeconds = ref('')
+const aiAnalysisSeconds = ref('')
 let aiStartedAt = 0
 const aiStemLabel = computed(() => aiStreamStem.value ? (aiStemSeconds.value ? `题干已识别 · ${aiStemSeconds.value}s` : '题干已识别') : '正在识别题干…')
 const aiButtonLabel = computed(() => aiLoading.value ? (aiStreamStem.value ? '正在生成解析…' : '正在识别题干…') : aiError.value ? '重试 AI 整理' : '开始 AI 整理')
@@ -215,8 +217,15 @@ function cancelGeneration() {
   aiTask = null
   aiLoading.value = false
   aiStreamStem.value = ''
+  aiStreamAnalysis.value = ''
   aiStemSeconds.value = ''
+  aiAnalysisSeconds.value = ''
 }
+watch(aiSource, () => {
+  if (!aiLoading.value || aiInputSnapshot.value === aiSource.value) return
+  cancelGeneration()
+  aiNotice.value = '题目信息已修改，已停止本次生成；可按当前内容重新整理。'
+}, { flush: 'sync' })
 async function generateWithMiMo() {
   if (aiLoading.value || loading.value || selectingImage.value || selectingRemarkImages.value) return
   if (!form.stem.trim() && !form.images.length) { aiError.value = '先输入题干或上传题图，再开始智能整理'; return }
@@ -228,7 +237,9 @@ async function generateWithMiMo() {
   aiResult.value = null
   aiInputSnapshot.value = aiSource.value
   aiStreamStem.value = ''
+  aiStreamAnalysis.value = ''
   aiStemSeconds.value = ''
+  aiAnalysisSeconds.value = ''
   aiStartedAt = Date.now()
   aiTask = startQuestionGeneration({ stem: form.stem, images: [...form.images], subject: form.subject, tags: [...tagValues.value] }, {
     onStem: stem => {
@@ -236,14 +247,19 @@ async function generateWithMiMo() {
       if (!aiStreamStem.value) aiStemSeconds.value = ((Date.now() - aiStartedAt) / 1000).toFixed(1)
       aiStreamStem.value = stem
     },
+    onAnalysis: analysis => {
+      if (disposed || sequence !== aiSequence) return
+      if (!aiStreamAnalysis.value) aiAnalysisSeconds.value = ((Date.now() - aiStartedAt) / 1000).toFixed(1)
+      aiStreamAnalysis.value = analysis
+    },
   })
   try {
     const result = await aiTask.promise
-    if (!disposed && sequence === aiSequence) { aiResult.value = result; aiNotice.value = '整理结果已生成，核对无误后保存整理结果。' }
+    if (!disposed && sequence === aiSequence) { aiResult.value = result; aiNotice.value = `整理结果已生成 · ${((Date.now() - aiStartedAt) / 1000).toFixed(1)}s，核对无误后保存整理结果。` }
   } catch (error) {
     if (!disposed && sequence === aiSequence && !(error instanceof GenerationCancelledError)) aiError.value = error instanceof Error ? error.message : '本次生成失败，当前输入已保留'
   } finally {
-    if (sequence === aiSequence) { aiLoading.value = false; aiTask = null; aiStreamStem.value = ''; aiStemSeconds.value = '' }
+    if (sequence === aiSequence) { aiLoading.value = false; aiTask = null; aiStreamStem.value = ''; aiStreamAnalysis.value = ''; aiStemSeconds.value = ''; aiAnalysisSeconds.value = '' }
   }
 }
 function applyGeneratedQuestion() {
@@ -322,8 +338,12 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <view v-if="aiLoading" class="ai-stream-panel" aria-live="polite">
           <view class="ai-stream-heading"><AppIcon name="scan-line" :size="15" tone="green" /><text>{{ aiStemLabel }}</text></view>
           <MathText v-if="aiStreamStem" :text="aiStreamStem" class="ai-stream-stem" />
-          <text v-else class="ai-stream-placeholder">题图已收到，通常 1 秒左右先出题干。</text>
-          <text class="ai-stream-hint">{{ aiStreamStem ? '解析继续生成中，完成后由你核对确认。' : '识别到完整题干后会先显示在这里。' }}</text>
+          <text v-else class="ai-stream-placeholder">正在读取题目，完整题干会先显示在这里。</text>
+          <view v-if="aiStreamAnalysis" class="ai-stream-analysis-section">
+            <view class="ai-stream-heading"><AppIcon name="sparkles" :size="15" tone="green" /><text>解析生成中 · {{ aiAnalysisSeconds }}s 开始显示</text></view>
+            <MathText :text="aiStreamAnalysis" class="ai-stream-analysis" />
+          </view>
+          <text class="ai-stream-hint">{{ aiStreamAnalysis ? '内容正在补全，完整结果校验通过后再核对保存。' : aiStreamStem ? '正在生成解析，生成的步骤会陆续显示。' : '识别与解析在同一次请求中完成。' }}</text>
         </view>
         <view class="ai-capture-feedback" aria-live="polite"><text v-if="aiLoading">{{ props.question ? '题目已收录，生成后由你核对确认。' : '当前输入仍保留在此页面，生成后由你核对确认。' }}</text><text v-else-if="aiError" class="ai-error">{{ aiError }} 也可以在下方手动整理。</text><text v-else-if="aiNotice">{{ aiNotice }}</text><text v-else>{{ pendingDraft || draftReadError ? '请先处理上次草稿。' : '也可以直接在下方手动补充。' }}</text><button v-if="aiLoading" class="text-button ai-cancel" @tap="cancelGeneration">改为手动整理</button></view>
       </view>
@@ -381,6 +401,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
 </template>
 
 <style scoped>
+.ai-stream-analysis-section{margin-top:14px;padding-top:12px;border-top:1px solid #e4ecdc;min-width:0}.ai-stream-analysis{margin-top:8px;max-height:260px;overflow-y:auto;font-size:13px;line-height:1.95;color:#52684b}@media(max-width:600px){.ai-stream-analysis{max-height:220px;font-size:12px}}
 .editor-personal-answer{margin:17px 0 23px}.editor-personal-answer>.form-label-row{gap:10px;flex-wrap:wrap;align-items:baseline}.editor-personal-answer .field-label{margin-bottom:9px}.personal-answer-tip{font-size:10px;line-height:1.7;color:#9aa58d}.editor-formula-preview{min-width:0;margin:9px 0 18px;padding:13px 15px;background:#f6f9f0;border:1px solid #e3ead9;border-radius:9px;font-size:14px;line-height:1.9;color:#52664b}.editor-formula-preview>text{display:block;margin-bottom:8px;font-size:10px;color:#92a080}.ai-result-math{font-size:14px;line-height:1.95;min-width:0;color:#64775a}.ai-capture-panel .ai-stream-stem{max-height:230px;overflow-y:auto}.editor-content{min-width:0}@media(max-width:600px){.personal-answer-tip{font-size:10px}.editor-formula-preview{padding:11px 12px;font-size:13px}.ai-result-math{font-size:13px}.ai-capture-panel .ai-stream-stem{max-height:190px}}
 .editor-remark-section>.editor-section-heading>view{display:flex;align-items:center;gap:7px}.editor-remark-hint{display:block;font-size:11px;line-height:1.8;color:#91a080;margin-bottom:12px}.editor-remark{height:120px;min-height:90px}.editor-remark-section{scroll-margin-top:18px}
 .metadata-expanded{transform:rotate(180deg)}
