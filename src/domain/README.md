@@ -12,11 +12,11 @@
 
 ## 自建错题本
 
-`Notebook` 字段为 `{id,title,audience,coverId,subject,createdAt,updatedAt,automatic?}`；`audience` 为 `k12 | computer | civil | general`。`subject` 可空，仅用于默认学科建议，不能限制成员题目的学科。
+`Notebook` 字段为 `{id,title,audience,coverId,subject,createdAt,updatedAt,automatic?}`；`audience` 为 `k12 | computer | civil | general`。主界面按题目的 `subject` 聚合科目错题本；旧自建本子的结构保留给兼容入口。
 
 `NOTEBOOK_COVERS` 位于 `notebooks.ts`，包含 K12 6 种、计算机 5 种、考公 3 种、通用 4 种封面。`notebookCover(id)` 返回封面视觉元数据，`normalizeNotebook()` 统一校验。
 
-题目的 `notebookId` 是实际归属，与 `subject` 独立。旧题无归属时通过 `migrateNotebooks()` 按学科生成确定 ID 的默认本；空本、自建本和已有归属保留。自动待分类题完成整理后可迁至学科默认本，明确选择的自建本不随学科变化迁移。细节见 [自建错题本](../../docs/自建错题本.md)。
+题目的 `notebookId` 是旧版实际归属，与 `subject` 独立；主界面用 `subject` 聚合题目。题目新增 `knowledgePoint`（主知识点）和 `relatedKnowledgePoints`（最多 4 个相关知识点），旧 `tags` 只作为兼容元数据和搜索字段。旧题无归属时通过 `migrateNotebooks()` 按学科生成确定 ID 的默认本；空本、自建本和已有归属保留。细节见 [产品逻辑设计](../../docs/产品逻辑设计.md)。
 
 ## 方法
 

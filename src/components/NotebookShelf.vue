@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useStudyStore } from '../domain/store'
 import { forgeProgress } from '../domain/forge'
+import { defaultNotebook, notebookCover } from '../domain/notebooks'
 import type { Notebook, NotebookAudience } from '../domain/types'
 import NotebookLibrary from './NotebookLibrary.vue'
 import NotebookEditor from './NotebookEditor.vue'
@@ -11,50 +12,62 @@ type Collection = 'all' | 'pending' | 'ready'
 const props = defineProps<{ scope: 'library' | 'favorites' | 'recycle'; search: string; collection: Collection; tag: string }>()
 const emit = defineEmits<{ 'update:search': [value: string]; 'update:collection': [value: Collection]; 'update:tag': [value: string]; open: [id: string]; edit: [id: string]; add: [notebookId?: string]; test: [ids: string[]] }>()
 const store = useStudyStore()
-const mode = ref<'books' | 'all'>('books')
+const mode = ref<'subjects' | 'legacy' | 'all'>('subjects')
 const activeBook = ref('')
+const activeSubject = ref('')
 const audience = ref<NotebookAudience | 'all'>('all')
 const editorOpen = ref(false)
 const editingBook = ref<Notebook>()
 const directions: { id: NotebookAudience | 'all'; label: string }[] = [{ id: 'all', label: '全部本子' }, { id: 'k12', label: 'K12 课堂' }, { id: 'computer', label: '计算机学习' }, { id: 'civil', label: '考公备考' }, { id: 'general', label: '通用本子' }]
 const selectedBook = computed(() => store.notebooks.value.find(book => book.id === activeBook.value))
-const showShelf = computed(() => props.scope === 'library' && mode.value === 'books' && !activeBook.value && !props.search && !props.tag && props.collection === 'all')
-const books = computed(() => store.notebooks.value.map(book => {
+const showShelf = computed(() => props.scope === 'library' && mode.value !== 'all' && !activeBook.value && !activeSubject.value && !props.search && !props.tag && props.collection === 'all')
+const subjectBooks = computed(() => [...new Set(store.questions.value.filter(q => !q.deletedAt && q.subject).map(q => q.subject))].sort((a, b) => a.localeCompare(b, 'zh-CN')).map(subject => {
+  const questions = store.questions.value.filter(q => !q.deletedAt && q.subject === subject)
+  const oldBook = store.notebooks.value.find(book => book.subject === subject)
+  const fallback = defaultNotebook(subject, '1970-01-01T00:00:00.000Z')
+  const cover = notebookCover(oldBook?.coverId || fallback.coverId)
+  return { id: `subject:${encodeURIComponent(subject)}`, title: `${subject}错题本`, subject, audience: oldBook?.audience || fallback.audience, coverId: oldBook?.coverId || cover.id, count: questions.length, reflected: questions.filter(q => q.reflection && Object.values(q.reflection).some(text => text.trim())).length, sharpened: questions.filter(q => forgeProgress(q.id, store.state.reviews).completed === 5).length }
+}))
+const legacyBooks = computed(() => store.notebooks.value.map(book => {
   const questions = store.questions.value.filter(q => q.notebookId === book.id)
   return { ...book, count: questions.length, reflected: questions.filter(q => q.reflection && Object.values(q.reflection).some(text => text.trim())).length, sharpened: questions.filter(q => forgeProgress(q.id, store.state.reviews).completed === 5).length }
 }))
-const visibleBooks = computed(() => books.value.filter(book => audience.value === 'all' || book.audience === audience.value))
+const visibleBooks = computed(() => (mode.value === 'legacy' ? legacyBooks.value : subjectBooks.value).filter(book => audience.value === 'all' || book.audience === audience.value))
 const testIds = computed(() => store.practiceQuestions.value.filter(q => forgeProgress(q.id, store.state.reviews).completed < 5).map(q => q.id))
 const recentQuestion = computed(() => [...store.readyQuestions.value].sort((a,b) => (b.lastReviewedAt || b.organizedAt || b.createdAt).localeCompare(a.lastReviewedAt || a.organizedAt || a.createdAt))[0])
 const reflectionCount = computed(() => store.questions.value.filter(q => q.reflection && Object.values(q.reflection).some(text => text.trim())).length)
-function backToBooks() { activeBook.value = ''; mode.value = 'books'; emit('update:search', ''); emit('update:tag', ''); emit('update:collection', 'all') }
-function openBook(id: string) { emit('update:search', ''); emit('update:tag', ''); emit('update:collection', 'all'); mode.value = 'books'; activeBook.value = id }
+function resetLibraryFilters() { emit('update:search', ''); emit('update:tag', ''); emit('update:collection', 'all') }
+function backToBooks() { activeBook.value = ''; activeSubject.value = ''; mode.value = 'subjects'; resetLibraryFilters() }
+function openSubject(subject: string) { resetLibraryFilters(); mode.value = 'subjects'; activeBook.value = ''; activeSubject.value = subject }
+function openLegacyBook(id: string) { resetLibraryFilters(); mode.value = 'legacy'; activeSubject.value = ''; activeBook.value = id }
+function showQuestionBank() { activeBook.value = ''; activeSubject.value = ''; mode.value = 'all'; resetLibraryFilters() }
+function showLegacyShelf() { activeBook.value = ''; activeSubject.value = ''; mode.value = 'legacy'; resetLibraryFilters() }
 function createBook() { editingBook.value = undefined; editorOpen.value = true }
-function editBook(book: Notebook) { editingBook.value = book; editorOpen.value = true }
+function editBook(book: any) { editingBook.value = book as Notebook; editorOpen.value = true }
 function savedBook(id: string) { editorOpen.value = false; audience.value = 'all'; if (activeBook.value) activeBook.value = id }
 function deletedBook(id: string) { editorOpen.value = false; audience.value = 'all'; if (activeBook.value === id) activeBook.value = '' }
 </script>
 <template>
   <view class="notebook-shelf-page">
     <template v-if="showShelf">
-      <view class="shelf-heading"><view><text class="shelf-kicker">我的学习空间</text><text class="shelf-title">我的错题本</text><text class="shelf-subtitle">课堂、专业课、备考，都有一本自己的错题本。</text></view><button class="button button-primary create-notebook" @tap="createBook"><AppIcon name="plus" :size="18" tone="white" /><text>建一个错题本</text></button></view>
+       <view class="shelf-heading"><view><text class="shelf-kicker">我的学习空间</text><text class="shelf-title">{{ mode === 'legacy' ? '旧版本子' : '我的错题本' }}</text><text class="shelf-subtitle">{{ mode === 'legacy' ? '保留旧数据的兼容入口，主流程仍按科目组织。' : '先按科目进入，再按知识点整理和巩固。' }}</text></view><button v-if="mode === 'legacy'" class="button button-primary create-notebook" @tap="createBook"><AppIcon name="plus" :size="18" tone="white" /><text>建一个旧版本子</text></button></view>
       <view v-if="recentQuestion" class="continue-strip"><view class="continue-icon"><AppIcon name="book-open" :size="23" tone="green" /></view><view class="continue-copy"><text class="continue-label">最近学习 · 继续复盘</text><text class="continue-title">{{ recentQuestion.title }}</text></view><button class="continue-button" @tap="emit('open', recentQuestion.id)"><text>继续复盘</text><AppIcon name="arrow-right" :size="17" tone="green" /></button></view>
     </template>
-    <view v-if="scope === 'library'" class="shelf-toolbar"><view class="shelf-view-switch"><button :class="{ active: mode === 'books' }" @tap="backToBooks">我的错题本<text class="tab-count">{{ books.length }}</text></button><button :class="{ active: mode === 'all' }" @tap="mode = 'all'; activeBook = ''">全部题目</button></view><button v-if="showShelf" class="shelf-test" @tap="emit('test', testIds)"><AppIcon name="flame" :size="16" tone="green" /><text>去练习</text></button></view>
+     <view v-if="scope === 'library'" class="shelf-toolbar"><view class="shelf-view-switch"><button :class="{ active: mode === 'subjects' && !activeSubject }" @tap="backToBooks">我的错题本<text class="tab-count">{{ subjectBooks.length }}</text></button><button :class="{ active: mode === 'all' }" @tap="showQuestionBank">错题库</button><button class="legacy-switch" :class="{ active: mode === 'legacy' }" @tap="showLegacyShelf">旧版本子</button></view><button v-if="showShelf" class="shelf-test" @tap="emit('test', testIds)"><AppIcon name="flame" :size="16" tone="green" /><text>去练习</text></button></view>
     <template v-if="showShelf">
       <scroll-view scroll-x class="shelf-audience-scroll" :show-scrollbar="false"><view class="shelf-audiences"><button v-for="direction in directions" :key="direction.id" :class="{ active: audience === direction.id }" :aria-pressed="audience === direction.id" @tap="audience = direction.id">{{ direction.label }}</button></view></scroll-view>
       <view class="book-grid">
         <view v-for="(book, index) in visibleBooks" :key="book.id" class="book-tile">
-          <button class="notebook-cover" :aria-label="`翻开${book.title}`" @tap="openBook(book.id)"><NotebookCover :title="book.title" :cover-id="book.coverId" :count="book.count" :ordinal="index + 1" /></button>
-          <view class="book-caption"><view><button class="book-open-caption" @tap="openBook(book.id)">{{ book.title }}</button><text class="book-meta">{{ book.reflected }} 页复盘<text> / </text>{{ book.sharpened }} 道完成五阶</text></view><button class="book-edit icon-button" :aria-label="`编辑${book.title}`" @tap="editBook(book)"><AppIcon name="pencil" :size="16" tone="muted" /></button></view>
+           <button class="notebook-cover" :aria-label="`翻开${book.title}`" @tap="mode === 'legacy' ? openLegacyBook(book.id) : openSubject(book.subject)"><NotebookCover :title="book.title" :cover-id="book.coverId" :count="book.count" :ordinal="index + 1" /></button>
+           <view class="book-caption"><view><button class="book-open-caption" @tap="mode === 'legacy' ? openLegacyBook(book.id) : openSubject(book.subject)">{{ book.title }}</button><text class="book-meta">{{ book.reflected }} 页复盘<text> / </text>{{ book.sharpened }} 道完成五阶</text></view><button v-if="mode === 'legacy'" class="book-edit icon-button" :aria-label="`编辑${book.title}`" @tap="editBook(book)"><AppIcon name="pencil" :size="16" tone="muted" /></button></view>
         </view>
-        <button class="new-notebook" @tap="createBook"><view class="new-notebook-icon"><AppIcon name="plus" :size="25" tone="muted" /></view><text>建一个错题本</text><text>{{ visibleBooks.length ? '为下一门课或下一场考试留一页' : '起个名字，选一张喜欢的封面' }}</text></button>
+          <button v-if="mode === 'legacy'" class="new-notebook" @tap="createBook"><view class="new-notebook-icon"><AppIcon name="plus" :size="25" tone="muted" /></view><text>建一个旧版本子</text><text>旧数据整理入口，主流程按科目组织</text></button>
       </view>
-      <view class="directory-summary"><text>{{ books.length }} 本笔记 · {{ reflectionCount }} 页复盘</text><text>按自己的方式，记录每次理解。</text></view>
+       <view class="directory-summary"><text>{{ (mode === 'legacy' ? legacyBooks.length : subjectBooks.length) }} 本笔记 · {{ reflectionCount }} 页复盘</text><text>按自己的方式，记录每次理解。</text></view>
     </template>
     <template v-else>
-      <view v-if="scope === 'library' && selectedBook" class="book-management"><button class="back-to-shelf" @tap="backToBooks"><AppIcon name="chevron-left" :size="15" tone="green" /><text>返回我的书架</text></button><button class="edit-active-notebook text-button" @tap="editBook(selectedBook)"><AppIcon name="pencil" :size="14" tone="green" /><text>名称与封面</text></button></view>
-      <NotebookLibrary :key="`${scope}-${activeBook}`" :scope="scope" :search="search" :collection="collection" :tag="tag" :notebook-id="activeBook || undefined" @update:search="emit('update:search', $event)" @update:collection="emit('update:collection', $event)" @update:tag="emit('update:tag', $event)" @open="emit('open', $event)" @edit="emit('edit', $event)" @add="emit('add', activeBook || undefined)" />
+       <view v-if="scope === 'library' && (selectedBook || activeSubject)" class="book-management"><button class="back-to-shelf" @tap="backToBooks"><AppIcon name="chevron-left" :size="15" tone="green" /><text>返回我的错题本</text></button><button v-if="selectedBook" class="edit-active-notebook text-button" @tap="editBook(selectedBook)"><AppIcon name="pencil" :size="14" tone="green" /><text>旧本名称与封面</text></button></view>
+       <NotebookLibrary :key="`${scope}-${activeBook}-${activeSubject}`" :scope="scope" :search="search" :collection="collection" :tag="tag" :notebook-id="mode === 'legacy' ? activeBook || undefined : undefined" :notebook-subject="activeSubject || undefined" @update:search="emit('update:search', $event)" @update:collection="emit('update:collection', $event)" @update:tag="emit('update:tag', $event)" @open="emit('open', $event)" @edit="emit('edit', $event)" @add="emit('add', mode === 'legacy' ? activeBook || undefined : undefined)" />
     </template>
     <NotebookEditor v-if="editorOpen" :notebook="editingBook" :initial-audience="audience === 'all' ? undefined : audience" @close="editorOpen = false" @saved="savedBook" @deleted="deletedBook" />
   </view>

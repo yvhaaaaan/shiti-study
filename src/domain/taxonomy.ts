@@ -3,6 +3,8 @@ import type { PaperSubject, Subject } from './types'
 export const SUBJECT_MAX_LENGTH = 20
 export const MAX_TAGS = 30
 export const MAX_TAG_LENGTH = 32
+export const MAX_KNOWLEDGE_POINT_LENGTH = 40
+export const MAX_RELATED_KNOWLEDGE_POINTS = 4
 
 function characterCount(value: string): number { return Array.from(value).length }
 
@@ -47,4 +49,22 @@ export function normalizeTags(value?: string | readonly string[]): string[] {
   if (longTag) throw new Error(`每个标签最多 ${MAX_TAG_LENGTH} 个字，请缩短“${Array.from(longTag).slice(0, 12).join('')}…”。`)
   if (tags.some((tag) => /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u2028\u2029]/.test(tag))) throw new Error('标签不能包含控制字符。')
   return tags
+}
+
+/** Knowledge points are the primary subject-scoped classification; old tags remain separate metadata. */
+export function normalizeKnowledgePoint(value: unknown, subject: string, pending = false): string {
+  if (pending && !subject.trim()) return ''
+  const point = typeof value === 'string' ? value.trim() : ''
+  if (!point) return subject.trim() ? '待归类' : ''
+  if (Array.from(point).length > MAX_KNOWLEDGE_POINT_LENGTH || /[\u0000-\u001f\u007f\u2028\u2029]/.test(point)) throw new Error(`知识点名称最多 ${MAX_KNOWLEDGE_POINT_LENGTH} 字，不能包含控制字符。`)
+  return point
+}
+
+export function normalizeRelatedKnowledgePoints(value: unknown, primary = ''): string[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) throw new Error('相关知识点必须是文字列表。')
+  const points = [...new Set(value.map(item => item.trim()).filter(Boolean))]
+  if (points.length > MAX_RELATED_KNOWLEDGE_POINTS) throw new Error(`最多添加 ${MAX_RELATED_KNOWLEDGE_POINTS} 个相关知识点。`)
+  if (points.some(point => Array.from(point).length > MAX_KNOWLEDGE_POINT_LENGTH || /[\u0000-\u001f\u007f\u2028\u2029]/.test(point))) throw new Error(`相关知识点最多 ${MAX_KNOWLEDGE_POINT_LENGTH} 字，不能包含控制字符。`)
+  return points.filter(point => point !== primary)
 }

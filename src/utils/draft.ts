@@ -6,6 +6,8 @@ export interface QuestionDraftForm {
   notebookId?: string
   title: string
   subject: Subject
+  knowledgePoint: string
+  relatedKnowledgePoints: string[]
   stem: string
   answer: string
   analysis: string
@@ -41,10 +43,12 @@ export function questionDraftKey(questionId?: string | null): string {
 function validForm(value: unknown): value is QuestionDraftForm {
   if (!value || typeof value !== 'object') return false
   const form = value as Partial<QuestionDraftForm>
-  const textFields: Array<keyof QuestionDraftForm> = ['title', 'stem', 'answer', 'analysis', 'userAnswer', 'source', 'tags']
+  const textFields: Array<keyof QuestionDraftForm> = ['title', 'subject', 'stem', 'answer', 'analysis', 'userAnswer', 'source', 'tags']
   return textFields.every(field => typeof form[field] === 'string')
     && (form.notebookId === undefined || (typeof form.notebookId === 'string' && form.notebookId.length <= 160))
     && (form.subject === '' || isValidSubject(form.subject))
+    && (form.knowledgePoint === undefined || typeof form.knowledgePoint === 'string')
+    && (form.relatedKnowledgePoints === undefined || Array.isArray(form.relatedKnowledgePoints) && form.relatedKnowledgePoints.every(point => typeof point === 'string'))
     && typeof form.difficulty === 'string' && ['', '基础', '进阶', '挑战'].includes(form.difficulty)
     && Array.isArray(form.images) && form.images.every(image => typeof image === 'string')
     && (form.remark === undefined || (typeof form.remark === 'string' && form.remark.length <= 5000))
@@ -53,7 +57,7 @@ function validForm(value: unknown): value is QuestionDraftForm {
 
 function copyForm(form: QuestionDraftForm): QuestionDraftForm {
   return {
-    title: form.title, subject: form.subject, stem: form.stem,
+    title: form.title, subject: form.subject, knowledgePoint: form.knowledgePoint ?? '', relatedKnowledgePoints: [...(form.relatedKnowledgePoints ?? [])], stem: form.stem,
     ...(form.notebookId !== undefined ? { notebookId: form.notebookId } : {}),
     answer: form.answer, analysis: form.analysis, userAnswer: form.userAnswer,
     remark: form.remark ?? '', remarkImages: [...(form.remarkImages ?? [])],

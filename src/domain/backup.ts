@@ -1,5 +1,5 @@
 import { migrateNotebooks, normalizeNotebook } from './notebooks'
-import { normalizePaperSubject, normalizeSubject, normalizeTags } from './taxonomy'
+import { normalizeKnowledgePoint, normalizePaperSubject, normalizeRelatedKnowledgePoints, normalizeSubject, normalizeTags } from './taxonomy'
 import { normalizeForge, normalizeReflection, validateForgeHistory } from './forge'
 import type { BackupCounts, BackupEnvelope, BackupValidationResult, Notebook, Note, Paper, Profile, Question, QuestionSnapshot, ReviewRecord, StudyState } from './types'
 
@@ -144,12 +144,15 @@ export function validateBackup(json: string): BackupValidationResult {
     const organizedAt = optionalDate(row, 'organizedAt', `${label}整理完成时间`, true)
     const status = choice(row.status, ['reinforce', 'mastered'] as const, `${label}状态`)
     const nextReviewDate = optionalDate(row, 'nextReviewDate', `${label}复习日期`)
+    const knowledgePoint = normalizeKnowledgePoint(row.knowledgePoint, subject, organizationStatus === 'pending')
+    const relatedKnowledgePoints = normalizeRelatedKnowledgePoints(row.relatedKnowledgePoints, knowledgePoint)
     if (organizationStatus === 'pending' && nextReviewDate) fail(`${label}尚待整理，不能安排复习计划。`)
     if (organizationStatus === 'pending' && organizedAt) fail(`${label}尚待整理，不能标记整理完成时间。`)
     return {
       id: text(row.id, `${label}标识`, true), title: text(row.title, `${label}标题`, true),
       notebookId: row.notebookId === undefined ? undefined : text(row.notebookId, `${label}所属错题本`, true),
-      subject, stem,
+      subject,
+       knowledgePoint, relatedKnowledgePoints, stem,
       answer: text(row.answer, `${label}答案`), analysis: text(row.analysis, `${label}解析`),
       userAnswer: text(row.userAnswer, `${label}作答`),
       remark, remarkImages,

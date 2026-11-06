@@ -7,10 +7,11 @@ import type { QuestionDraft, QuestionDraftForm } from '../utils/draft'
 import AppIcon from './AppIcon.vue'
 import MathText from './MathText.vue'
 import QuestionFlowSteps from './QuestionFlowSteps.vue'
-import NotebookPicker from './NotebookPicker.vue'
+import KnowledgePointPicker from './KnowledgePointPicker.vue'
 import TagPicker from './TagPicker.vue'
 import AttachmentGallery from './AttachmentGallery.vue'
 import { MAX_TAGS, MAX_TAG_LENGTH, isValidSubject, normalizeSubject, parseTags } from '../domain/taxonomy'
+import { getKnowledgeGroups } from '../domain/tagCatalog'
 import { GenerationCancelledError, startQuestionGeneration } from '../services/questionAi'
 import type { GeneratedQuestion, GenerationTask } from '../services/questionAi'
 
@@ -30,7 +31,7 @@ const savingMode = ref<'progress' | 'complete' | null>(null)
 // Moving the question later must preserve the subject already being edited.
 const initialNotebookSubject = store.notebooks.value.find(book => book.id === props.question?.notebookId)?.subject
 const initialSubject = props.question?.subject || (isValidSubject(initialNotebookSubject) ? initialNotebookSubject : '')
-const form = reactive<QuestionDraftForm>({ notebookId: props.question?.notebookId || '', title: props.question?.title || '', subject: initialSubject, stem: props.question?.stem || '', answer: props.question?.answer || '', analysis: props.question?.analysis || '', userAnswer: props.question?.userAnswer || '', remark: props.question?.remark ?? '', remarkImages: [...(props.question?.remarkImages ?? [])], difficulty: props.question?.difficulty ?? '', source: props.question?.source || '', tags: props.question?.tags.join('，') || '', images: [...(props.question?.images || [])] })
+const form = reactive<QuestionDraftForm>({ notebookId: props.question?.notebookId || '', title: props.question?.title || '', subject: initialSubject, knowledgePoint: props.question?.knowledgePoint || (initialSubject ? '待归类' : ''), relatedKnowledgePoints: [...(props.question?.relatedKnowledgePoints ?? [])], stem: props.question?.stem || '', answer: props.question?.answer || '', analysis: props.question?.analysis || '', userAnswer: props.question?.userAnswer || '', remark: props.question?.remark ?? '', remarkImages: [...(props.question?.remarkImages ?? [])], difficulty: props.question?.difficulty ?? '', source: props.question?.source || '', tags: props.question?.tags.join('，') || '', images: [...(props.question?.images || [])] })
 const canComplete = computed(() => isValidSubject(form.subject) && ['基础', '进阶', '挑战'].includes(form.difficulty))
 const aiLoading = ref(false)
 const aiError = ref('')
@@ -271,7 +272,9 @@ function applyGeneratedQuestion() {
   if (!aiResult.value || aiResultStale.value) return false
   const result = aiResult.value
   const tags = parseTags([...tagValues.value, ...result.tags].join('，')).slice(0, MAX_TAGS)
-  Object.assign(form, { title: result.title, subject: result.subject, stem: result.stem, answer: result.answer, analysis: result.analysis, tags: tags.join('，'), difficulty: result.difficulty })
+  const catalogue = new Set(getKnowledgeGroups(result.subject).flatMap(group => group.tags))
+  const suggestedPoints = result.tags.filter(tag => catalogue.has(tag)).slice(0, 5)
+  Object.assign(form, { title: result.title, subject: result.subject, knowledgePoint: form.knowledgePoint && form.knowledgePoint !== '待归类' ? form.knowledgePoint : suggestedPoints[0] || '待归类', relatedKnowledgePoints: form.relatedKnowledgePoints.length ? form.relatedKnowledgePoints : suggestedPoints.slice(1, 5), stem: result.stem, answer: result.answer, analysis: result.analysis, tags: tags.join('，'), difficulty: result.difficulty })
   customSubjectName.value = ''
   customSubjectError.value = ''
   customSubjectOpen.value = false
@@ -305,7 +308,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
   stopDraftTimer()
   try {
     const previousPaperSubjects = new Map(store.papers.value.map(p => [p.id, p.subject]))
-    const input: QuestionInput = { ...form, notebookId: form.notebookId || undefined, title: form.title.trim() || form.stem.slice(0, 22) || '图片错题', tags: tagValues.value, stem: form.stem.trim(), images: [...form.images], remarkImages: [...form.remarkImages], organizationStatus }
+    const input: QuestionInput = { ...form, notebookId: form.notebookId || undefined, title: form.title.trim() || form.stem.slice(0, 22) || '图片错题', tags: tagValues.value, stem: form.stem.trim(), images: [...form.images], relatedKnowledgePoints: [...form.relatedKnowledgePoints], remarkImages: [...form.remarkImages], organizationStatus }
     if (sessionQuestionId.value) store.updateQuestion(sessionQuestionId.value, input)
     else sessionQuestionId.value = store.addQuestion(input).id
     await store.flushPersistence()
@@ -334,14 +337,14 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
     <view class="modal-header"><view><text class="eyebrow">REVIEW & KEEP</text><text class="modal-title">{{ isPending ? '补充整理' : '编辑错题' }}</text></view><button class="icon-button" aria-label="关闭" :disabled="loading || selectingRemarkImages" @tap="requestClose"><AppIcon name="x" /></button></view>
     <QuestionFlowSteps v-if="isPending" :active="2" />
     <scroll-view scroll-y class="modal-scroll" :scroll-into-view="remarkScrollTarget"><view class="editor-content">
-      <NotebookPicker v-model="form.notebookId" label="所属错题本" :disabled="loading || aiLoading" />
+       <view class="subject-archive-note"><AppIcon name="book-open" :size="17" tone="green" /><view><text>按科目自动进入错题本</text><text>{{ form.subject ? `${form.subject}错题本` : '完成整理后选择科目' }} · 不再混放不同学科</text></view></view>
       <view v-if="pendingDraft" class="draft-banner"><view class="draft-banner-heading"><AppIcon name="notebook-pen" :size="18" tone="green" /><text>上次的修改还在</text></view><text class="draft-banner-copy">{{ draftTime(pendingDraft.updatedAt) }} 保存。恢复后继续编辑，或丢弃这份草稿。</text><text v-if="pendingIsOlder" class="draft-version-warning">原题已有更新，恢复后请核对再保存。</text><view class="draft-banner-actions"><button class="draft-action" @tap="restoreDraft">恢复草稿</button><button class="draft-action draft-action-muted" @tap="discardDraft">丢弃旧草稿</button></view></view>
       <view v-else-if="draftReadError" class="draft-banner draft-banner-warning"><text class="draft-banner-copy">{{ draftReadError }}</text><button class="draft-action draft-action-muted" @tap="discardDraft">清除旧草稿</button></view>
       <view v-if="saveError || draftError" class="editor-warning" role="alert"><AppIcon name="info" :size="16" tone="orange" /><text>{{ saveError || draftError }}</text></view>
       <view v-if="oldVersionRestored" class="restored-version-note"><text>已恢复较早的草稿，请核对后再保存。</text></view>
 
       <view v-if="!aiResult" id="question-ai-panel" class="ai-capture-panel">
-        <view class="ai-capture-heading"><view class="ai-capture-symbol"><AppIcon name="sparkles" :size="20" tone="green" /></view><view><text class="ai-capture-title">AI 辅助整理</text><text class="ai-capture-copy">一起生成分类、标签、答案和解析</text></view></view>
+         <view class="ai-capture-heading"><view class="ai-capture-symbol"><AppIcon name="sparkles" :size="20" tone="green" /></view><view><text class="ai-capture-title">AI 辅助整理</text><text class="ai-capture-copy">一起生成科目、知识点建议、答案和解析</text></view></view>
         <button class="button button-primary ai-generate-button" :disabled="aiLoading || loading || selectingImage || selectingRemarkImages || !!pendingDraft || !!draftReadError || (!form.stem.trim() && !form.images.length)" :loading="aiLoading" @tap="generateWithMiMo"><AppIcon v-if="!aiLoading" name="sparkles" :size="17" tone="white" /><text>{{ aiButtonLabel }}</text></button>
         <view v-if="aiLoading" class="ai-stream-panel" aria-live="polite">
           <view class="ai-stream-heading"><AppIcon name="scan-line" :size="15" tone="green" /><text>{{ aiStemLabel }}</text></view>
@@ -375,7 +378,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         <view class="subject-picker"><button v-if="isPending" class="subject-choice" :class="{ active: !form.subject }" :aria-pressed="!form.subject" @tap="form.subject = ''">暂不分类</button><button v-for="subject in shownSubjects" :key="subject" class="subject-choice" :class="{ active: form.subject === subject }" :aria-pressed="form.subject === subject" @tap="form.subject = subject">{{ subject }}</button><button v-if="subjects.length > 8" class="subject-choice subject-more" @tap="expandedSubjects = !expandedSubjects"><text>{{ expandedSubjects ? '收起科目' : '更多科目' }}</text><AppIcon name="chevron-down" :size="12" tone="green" /></button></view>
         <view v-if="customSubjectOpen" class="custom-subject"><view class="custom-subject-row"><input v-model="customSubjectName" class="form-input custom-subject-input" :maxlength="20" placeholder="例如：高等数学、经济学、日语" @confirm="addCustomSubject" /><button class="button button-quiet custom-subject-apply" @tap="addCustomSubject">使用此科目</button></view><text class="custom-subject-hint" :class="{ 'custom-subject-error': customSubjectError }">{{ customSubjectError || '最多 20 字，保存后可用于筛选。' }}</text></view>
         <text class="field-label">难度 <text class="optional">完成整理时必选</text></text><view class="difficulty-picker"><button v-if="isPending" class="filter-chip" :class="{ active: !form.difficulty }" @tap="form.difficulty = ''">暂不选择</button><button v-for="level in ['基础', '进阶', '挑战']" :key="level" class="filter-chip" :class="{ active: form.difficulty === level }" @tap="form.difficulty = level as Question['difficulty']">{{ level }}</button></view>
-        <TagPicker v-model="form.tags" :subject="form.subject || '未分类'" />
+         <KnowledgePointPicker v-model="form.knowledgePoint" v-model:related="form.relatedKnowledgePoints" :subject="form.subject" :disabled="loading || aiLoading" />
 
         <view class="editor-section-heading"><text>答案与解析</text><text class="optional">可稍后补充</text></view>
         <text class="field-label">参考答案</text><textarea v-model="form.answer" class="form-textarea short editor-answer" maxlength="5000" placeholder="正确答案是什么？" /><text class="field-counter">{{ form.answer.length }} / 5000</text><view v-if="hasFormula(form.answer)" class="editor-formula-preview"><text>参考答案预览</text><MathText :text="form.answer" /></view>
@@ -389,11 +392,11 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
         </view>
 
         <button class="editor-metadata-toggle" :aria-expanded="metadataOpen" @tap="metadataOpen = !metadataOpen"><AppIcon name="notebook-pen" :size="16" tone="muted" /><text>标题与来源</text><text class="optional">选填</text><AppIcon name="chevron-down" :class="{ 'metadata-expanded': metadataOpen }" :size="15" tone="muted" /></button>
-        <view v-if="metadataOpen" class="editor-metadata">
-          <text class="field-label">题目标题</text><input v-model="form.title" class="form-input editor-title" maxlength="60" placeholder="留空时会根据题干命名" />
-          <text class="field-label">题目来源</text><input v-model="form.source" class="form-input editor-source" maxlength="120" placeholder="例如：周测 · 第 8 题" />
-
-        </view>
+         <view v-if="metadataOpen" class="editor-metadata">
+           <text class="field-label">题目标题</text><input v-model="form.title" class="form-input editor-title" maxlength="60" placeholder="留空时会根据题干命名" />
+           <text class="field-label">题目来源</text><input v-model="form.source" class="form-input editor-source" maxlength="120" placeholder="例如：周测 · 第 8 题" />
+           <view class="legacy-tag-section"><view class="legacy-tag-heading"><text>旧版标签</text><text>仅用于兼容和搜索，不再作为主要分类</text></view><TagPicker v-model="form.tags" :subject="form.subject || '未分类'" /></view>
+         </view>
       </view>
     </view></scroll-view>
     <view class="editor-draft-status"><view class="draft-state-dot" :class="{ 'draft-state-error': draftState === 'error', 'draft-state-saving': draftState === 'saving' }" /><text>{{ aiResult ? 'AI 建议待你确认，尚未更新题目' : aiLoading ? '正在生成整理建议，完成后再核对保存' : pendingDraft || draftReadError ? '上次的修改待恢复' : draftState === 'error' ? '修改暂未保存，请保留当前页面' : draftState === 'saving' ? '正在保存草稿…' : draftState === 'saved' ? '修改已存为草稿，确认保存后更新题目' : isPending ? props.question ? '题目已收录 · 待整理，可稍后继续' : '保存题目即可收录，分类与解析可稍后补充' : '核对后保存本次修改' }}</text></view>
@@ -410,7 +413,7 @@ async function save(mode: 'progress' | 'complete' = 'complete') {
 
 <style scoped>
 .ai-stream-analysis-section{margin-top:14px;padding-top:12px;border-top:1px solid #ece4dc;min-width:0}.ai-stream-analysis{margin-top:8px;max-height:none;overflow:visible;font-size:13px;line-height:1.95;color:#67584c}@media(max-width:600px){.ai-stream-analysis{max-height:none;font-size:12px}}
-.editor-personal-answer{margin:17px 0 23px}.editor-personal-answer>.form-label-row{gap:10px;flex-wrap:wrap;align-items:baseline}.editor-personal-answer .field-label{margin-bottom:9px}.personal-answer-tip{font-size:10px;line-height:1.7;color:#a4988e}.editor-formula-preview{min-width:0;margin:9px 0 18px;padding:13px 15px;background:#f9f4f0;border:1px solid #eae2d9;border-radius:9px;font-size:14px;line-height:1.9;color:#65574c}.editor-formula-preview>text{display:block;margin-bottom:8px;font-size:10px;color:#9e8e82}.ai-result-math{font-size:14px;line-height:1.95;min-width:0;color:#76675b}.ai-capture-panel .ai-stream-stem{max-height:none;overflow:visible}.editor-content{min-width:0}@media(max-width:600px){.personal-answer-tip{font-size:10px}.editor-formula-preview{padding:11px 12px;font-size:13px}.ai-result-math{font-size:13px}.ai-capture-panel .ai-stream-stem{max-height:none}}
+ .editor-personal-answer{margin:17px 0 23px}.editor-personal-answer>.form-label-row{gap:10px;flex-wrap:wrap;align-items:baseline}.editor-personal-answer .field-label{margin-bottom:9px}.personal-answer-tip{font-size:10px;line-height:1.7;color:#a4988e}.editor-formula-preview{min-width:0;margin:9px 0 18px;padding:13px 15px;background:#f9f4f0;border:1px solid #eae2d9;border-radius:9px;font-size:14px;line-height:1.9;color:#65574c}.editor-formula-preview>text{display:block;margin-bottom:8px;font-size:10px;color:#9e8e82}.ai-result-math{font-size:14px;line-height:1.95;min-width:0;color:#76675b}.ai-capture-panel .ai-stream-stem{max-height:none;overflow:visible}.editor-content{min-width:0}.subject-archive-note{display:flex;align-items:flex-start;gap:9px;margin:0 0 21px;padding:12px 13px;border:1px solid #dfe8d9;border-radius:9px;background:#f7fbf4;color:#5e7654}.subject-archive-note>view{min-width:0}.subject-archive-note>view>text:first-child{display:block;font-size:12px;font-weight:600}.subject-archive-note>view>text:last-child{display:block;margin-top:4px;color:#9aa88f;font-size:10px;line-height:1.7}.legacy-tag-section{margin-top:18px;padding-top:15px;border-top:1px dashed #e8dfd6}.legacy-tag-heading{display:flex;align-items:center;justify-content:space-between;gap:10px}.legacy-tag-heading>text:first-child{font-size:12px;color:#806b5d}.legacy-tag-heading>text:last-child{font-size:10px;color:#aa9e94;line-height:1.7}@media(max-width:600px){.personal-answer-tip{font-size:10px}.editor-formula-preview{padding:11px 12px;font-size:13px}.ai-result-math{font-size:13px}.ai-capture-panel .ai-stream-stem{max-height:none}.subject-archive-note>view>text:first-child{font-size:11px}.legacy-tag-heading{align-items:flex-start;flex-direction:column;gap:4px}}
 .editor-remark-section>.editor-section-heading>view{display:flex;align-items:center;gap:7px}.editor-remark-hint{display:block;font-size:11px;line-height:1.8;color:#9e8e82;margin-bottom:12px}.editor-remark{height:120px;min-height:90px}.editor-remark-section{scroll-margin-top:18px}
 .metadata-expanded{transform:rotate(180deg)}
 .editor-section-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:20px 0 13px;margin-top:7px;border-top:1px solid #ede6e0;color:#6e5847;font-size:13px;font-weight:600}.editor-section-heading:first-child{border-top:0;margin-top:0;padding-top:0}.editor-add-image{font-size:11px;font-weight:400}.editor-content>.ai-capture-panel{margin:0 0 22px}.editor-content>.ai-result-panel{margin:0}.editor-metadata-toggle{display:flex;align-items:center;gap:8px;width:100%;padding:16px 0;margin:20px 0 0;border-top:1px solid #ece4dd;background:transparent;font-size:12px;text-align:left;color:#928377}.editor-metadata-toggle>.app-icon:last-child{margin-left:auto}.editor-metadata{padding:4px 0 10px}.ai-source-images{margin:14px 0 19px}.ai-source-images>text{font-size:10px;color:#9f9084}.ai-source-images>.image-previews{margin:8px 0}.ai-source-images .image-preview{width:80px;height:70px}.ai-source-images .image-preview>image{background:#f5f1ec}.ai-result-copy>.ai-result-tags{margin-top:0}.organization-footer>.ai-edit-result{margin-left:auto}.organization-footer>.ai-confirm-save{min-width:150px}.editor-manual-form .difficulty-picker{margin-bottom:19px}@media(max-width:600px){.editor-section-heading{font-size:12px;padding-top:18px}.editor-metadata-toggle{font-size:11px}.organization-footer>.ai-confirm-save{min-width:144px}}

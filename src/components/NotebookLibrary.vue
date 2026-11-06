@@ -3,7 +3,6 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import QuestionCard from './QuestionCard.vue'
 import { useStudyStore } from '../domain/store'
-import { normalizeTags } from '../domain/taxonomy'
 import type { Question } from '../domain/types'
 
 type Collection = 'all' | 'pending' | 'ready'
@@ -37,11 +36,11 @@ const terms = computed(() => props.search.trim().toLocaleLowerCase().split(/\s+/
 function matches(q: Question, except?: 'subject' | 'tag') {
   if (props.collection !== 'all' && (q.organizationStatus === 'pending' ? 'pending' : 'ready') !== props.collection) return false
   if (except !== 'subject' && subject.value && (subject.value === '__unclassified' ? !!q.subject : q.subject !== subject.value)) return false
-  if (except !== 'tag' && props.tag && !q.tags.includes(props.tag)) return false
+  if (except !== 'tag' && props.tag && q.knowledgePoint !== props.tag && !(q.relatedKnowledgePoints ?? []).includes(props.tag)) return false
   if (status.value && (q.organizationStatus === 'pending' || q.status !== status.value)) return false
   if (difficulty.value && q.difficulty !== difficulty.value) return false
   if (terms.value.length) {
-    const text = [q.subject, q.title, q.stem, q.answer, q.analysis, q.userAnswer, q.remark, q.reflection?.mistake, q.reflection?.insight, q.reflection?.reminder, q.source, ...q.tags].join(' ').toLocaleLowerCase()
+    const text = [q.subject, q.knowledgePoint, ...(q.relatedKnowledgePoints ?? []), q.title, q.stem, q.answer, q.analysis, q.userAnswer, q.remark, q.reflection?.mistake, q.reflection?.insight, q.reflection?.reminder, q.source, ...q.tags].join(' ').toLocaleLowerCase()
     if (!terms.value.every(term => text.includes(term))) return false
   }
   return true
@@ -54,9 +53,9 @@ const subjectOptions = computed(() => {
   return [{ id: '', label: '全部科目', count: matching.length }, ...names.map(id => ({ id, label: id === '__unclassified' ? '未分类' : id, count: matching.filter(q => (q.subject || '__unclassified') === id).length }))]
 })
 const tagOptions = computed(() => {
-  const tags = new Set(source.value.filter(q => matches(q, 'tag')).flatMap(q => q.tags))
-  if (props.tag) tags.add(props.tag)
-  return ['全部标签', ...[...tags].sort((a, b) => a.localeCompare(b, 'zh-CN'))]
+  const points = new Set(source.value.filter(q => matches(q, 'tag')).flatMap(q => [q.knowledgePoint || '待归类', ...(q.relatedKnowledgePoints ?? [])]))
+  if (props.tag) points.add(props.tag)
+  return ['全部知识点', ...[...points].sort((a, b) => a.localeCompare(b, 'zh-CN'))]
 })
 const filtered = computed(() => source.value.filter(q => matches(q)).sort((a, b) => {
   if (sortIndex.value === 1) return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
@@ -70,7 +69,7 @@ const allPageSelected = computed(() => !!paginated.value.length && paginated.val
 const filters = computed(() => [
   ...(props.search.trim() ? [{ key: 'search', label: `搜索：${props.search.trim()}` }] : []),
   ...(subject.value ? [{ key: 'subject', label: subject.value === '__unclassified' ? '未分类' : subject.value }] : []),
-  ...(props.tag ? [{ key: 'tag', label: `# ${props.tag}` }] : []),
+  ...(props.tag ? [{ key: 'tag', label: `知识点：${props.tag}` }] : []),
   ...(status.value ? [{ key: 'status', label: status.value === 'mastered' ? '五阶完成' : '待练习' }] : []),
   ...(difficulty.value ? [{ key: 'difficulty', label: difficulty.value }] : []),
 ])
@@ -124,14 +123,6 @@ function batchDelete() {
   const ids = [...selected.value]
   uni.showModal({ title: `移入回收站 ${ids.length} 道题？`, content: '题目和复习记录会保留，之后可在回收站恢复。', confirmText: '移入回收站', success: result => { if (result.confirm) void saveMutation(() => store.deleteQuestions(ids), '已移入回收站') } })
 }
-function batchTag() {
-  if (!selected.value.length || busy.value) return
-  const ids = [...selected.value]
-  uni.showModal({ title: `为 ${ids.length} 道题添加标签`, editable: true, placeholderText: '多个标签用逗号分隔', success: result => {
-    if (!result.confirm || !result.content?.trim()) return
-    void saveMutation(() => store.addTagsToQuestions(ids, normalizeTags([result.content!])), '标签已添加')
-  } })
-}
 const moveOptions = computed(() => ['选择目标错题本', ...store.notebooks.value.map(book => book.title)])
 function moveToNotebook(event: any) {
   const target = store.notebooks.value[Number(event.detail.value) - 1]
@@ -139,6 +130,7 @@ function moveToNotebook(event: any) {
   const ids = [...selected.value]
   void saveMutation(() => store.moveQuestionsToNotebook(ids, target.id), '已移入目标错题本')
 }
+function showLegacyTagHint() { uni.showToast({ title: '请打开题目，在高级整理中维护旧版标签', icon: 'none' }) }
 function restore(ids: string[]) { if (ids.length) void saveMutation(() => store.restoreQuestions(ids), `已恢复 ${ids.length} 道题`) }
 </script>
 
@@ -157,7 +149,7 @@ function restore(ids: string[]) { if (ids.length) void saveMutation(() => store.
       <view class="notebook-search"><AppIcon name="search" :size="20" tone="muted" /><input :value="search" placeholder="搜索题目、知识点或我的理解" aria-label="搜索错题" confirm-type="search" @input="onSearch" /><button v-if="search" class="icon-button" aria-label="清空题目搜索" @tap="emit('update:search', '')"><AppIcon name="x" :size="16" tone="muted" /></button></view>
       <scroll-view v-if="!notebookSubject" scroll-x class="notebook-subject-scroll" :show-scrollbar="false"><view class="notebook-subjects"><button v-for="item in subjectOptions" :key="item.id" class="notebook-subject" :class="{ active: subject === item.id }" :aria-pressed="subject === item.id" :title="item.label" @tap="subject = item.id"><text>{{ item.label }}</text><text>{{ item.count }}</text></button></view></scroll-view>
       <view class="notebook-filter-row">
-        <picker :range="tagOptions" :value="Math.max(0, tagOptions.indexOf(tag))" @change="pickTag"><view class="notebook-picker" :class="{ chosen: tag }"><AppIcon name="layers" :size="15" :tone="tag ? 'green' : 'muted'" /><text>{{ tag || '全部标签' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
+         <picker :range="tagOptions" :value="Math.max(0, tagOptions.indexOf(tag))" @change="pickTag"><view class="notebook-picker" :class="{ chosen: tag }"><AppIcon name="target" :size="15" :tone="tag ? 'green' : 'muted'" /><text>{{ tag || '全部知识点' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
         <picker v-if="collection !== 'pending'" :range="statusOptions" :value="status === 'mastered' ? 2 : status === 'reinforce' ? 1 : 0" @change="pickStatus"><view class="notebook-picker" :class="{ chosen: status }"><text>{{ status ? status === 'mastered' ? '五阶完成' : '待练习' : '锻造状态' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
         <picker v-if="collection !== 'pending'" :range="difficultyOptions" :value="Math.max(0, difficultyOptions.indexOf(difficulty))" @change="pickDifficulty"><view class="notebook-picker" :class="{ chosen: difficulty }"><text>{{ difficulty || '难度' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
         <text class="notebook-filter-tip">{{ collection === 'pending' ? '先收录，按自己的节奏整理。' : '按科目和知识点，找回需要的题。' }}</text>
@@ -168,7 +160,7 @@ function restore(ids: string[]) { if (ids.length) void saveMutation(() => store.
     <view v-if="collection === 'pending' && counts.pending" class="notebook-inbox-hint"><AppIcon name="lightbulb" :size="19" tone="orange" /><text>题图和文字已保存。点击题目先查看，选择「继续整理」再补充分类与解析。</text></view>
     <view class="notebook-result-bar"><view class="notebook-result-count"><text>{{ filters.length || collection !== 'all' ? '筛选结果' : '全部收录' }}</text><text>{{ filtered.length }} <text>道题</text></text></view><view class="notebook-result-actions"><picker :range="sortOptions" :value="sortIndex" @change="sortIndex = Number($event.detail.value)"><view class="notebook-sort"><text>{{ sortOptions[sortIndex] }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker><view class="notebook-layout"><button class="icon-button" :class="{ active: layout === 'grid' }" aria-label="卡片视图" :aria-pressed="layout === 'grid'" @tap="layout = 'grid'"><AppIcon name="grid-2x2" :size="17" :tone="layout === 'grid' ? 'green' : 'muted'" /></button><button class="icon-button" :class="{ active: layout === 'list' }" aria-label="列表视图" :aria-pressed="layout === 'list'" @tap="layout = 'list'"><AppIcon name="list" :size="18" :tone="layout === 'list' ? 'green' : 'muted'" /></button></view><button class="notebook-manage" :class="{ active: selecting }" :disabled="busy || (!source.length && !selecting)" @tap="toggleSelecting"><AppIcon :name="selecting ? 'x' : 'check-check'" :size="16" tone="green" /><text>{{ selecting ? '退出管理' : '批量管理' }}</text></button></view></view>
 
-    <view v-if="selecting" class="notebook-batch"><view class="notebook-batch-selection"><button :disabled="busy || !paginated.length" @tap="togglePage"><view class="notebook-page-checkbox" :class="{ checked: allPageSelected }"><AppIcon v-if="allPageSelected" name="check" :size="13" tone="white" /></view><text>{{ allPageSelected ? '取消本页' : '选择本页' }}</text></button><text>已选 {{ selected.length }} 道</text><button v-if="filtered.length > pageSize && selected.length !== filtered.length" class="notebook-select-all" :disabled="busy" @tap="selected = filtered.map(q => q.id)">选择全部 {{ filtered.length }} 道</button></view><view class="notebook-batch-actions"><picker v-if="scope !== 'recycle'" class="notebook-move-picker" :range="moveOptions" :value="0" :disabled="busy || !selected.length" @change="moveToNotebook"><view class="notebook-move-label"><AppIcon name="book-open" :size="15" tone="green" /><text>移到错题本</text></view></picker><button v-if="scope !== 'recycle'" :disabled="busy || !selected.length" @tap="batchTag"><AppIcon name="layers" :size="15" tone="green" /><text>添加标签</text></button><button v-if="scope !== 'recycle'" class="notebook-danger" :disabled="busy || !selected.length" @tap="batchDelete"><AppIcon name="trash-2" :size="15" tone="muted" /><text>移入回收站</text></button><button v-else :disabled="busy || !selected.length" @tap="restore([...selected])"><AppIcon name="rotate-ccw" :size="15" tone="green" /><text>恢复所选</text></button></view></view>
+     <view v-if="selecting" class="notebook-batch"><view class="notebook-batch-selection"><button :disabled="busy || !paginated.length" @tap="togglePage"><view class="notebook-page-checkbox" :class="{ checked: allPageSelected }"><AppIcon v-if="allPageSelected" name="check" :size="13" tone="white" /></view><text>{{ allPageSelected ? '取消本页' : '选择本页' }}</text></button><text>已选 {{ selected.length }} 道</text><button v-if="filtered.length > pageSize && selected.length !== filtered.length" class="notebook-select-all" :disabled="busy" @tap="selected = filtered.map(q => q.id)">选择全部 {{ filtered.length }} 道</button></view><view class="notebook-batch-actions"><picker v-if="scope !== 'recycle'" class="notebook-move-picker" :range="moveOptions" :value="0" :disabled="busy || !selected.length" @change="moveToNotebook"><view class="notebook-move-label"><AppIcon name="book-open" :size="15" tone="green" /><text>移到错题本</text></view></picker><button v-if="scope !== 'recycle'" class="notebook-legacy-action" :disabled="busy || !selected.length" @tap="showLegacyTagHint"><AppIcon name="layers" :size="15" tone="muted" /><text>旧版标签</text></button><button v-if="scope !== 'recycle'" class="notebook-danger" :disabled="busy || !selected.length" @tap="batchDelete"><AppIcon name="trash-2" :size="15" tone="muted" /><text>移入回收站</text></button><button v-else :disabled="busy || !selected.length" @tap="restore([...selected])"><AppIcon name="rotate-ccw" :size="15" tone="green" /><text>恢复所选</text></button></view></view>
     <view v-if="actionError" class="notebook-error" role="alert"><text>{{ actionError }}</text><button v-if="store.state.storageError" class="text-button" :disabled="busy" @tap="retrySave">重试保存</button></view>
     <view v-if="busy" class="notebook-saving" aria-live="polite">正在保存本次更改…</view>
 

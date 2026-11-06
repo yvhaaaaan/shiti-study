@@ -41,6 +41,10 @@ export interface Question {
   id: string
   title: string
   subject: Subject
+  /** Primary subject-scoped knowledge point. Legacy questions may omit it. */
+  knowledgePoint?: string
+  /** Additional subject-scoped knowledge points; kept intentionally small. */
+  relatedKnowledgePoints?: string[]
   stem: string
   answer: string
   analysis: string
@@ -68,6 +72,8 @@ export interface QuestionInput {
   notebookId?: string
   title?: string
   subject: Subject
+  knowledgePoint?: string
+  relatedKnowledgePoints?: string[]
   stem: string
   answer?: string
   analysis?: string

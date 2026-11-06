@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { createSeedState, dayOffset, localDate } from './seed'
 import { SUBJECTS } from './types'
 import { serializeBackup, validateBackup } from './backup'
-import { isValidSubject, normalizePaperSubject, normalizeSubject, normalizeTags } from './taxonomy'
+import { isValidSubject, normalizeKnowledgePoint, normalizePaperSubject, normalizeRelatedKnowledgePoints, normalizeSubject, normalizeTags } from './taxonomy'
 import { forgeProgress, normalizeForge, normalizeReflection, questionContentKey, validateForgeAttempt } from './forge'
 import { storageStatus, checkSession, loadLocalState, saveLocalState, loadCloudState, saveCloudState, portableState } from '../services/studyStorage'
 import type { BackupCounts, Difficulty, Notebook, NotebookInput, Note, NoteInput, Paper, PaperInput, Profile, Question, QuestionInput, QuestionSnapshot, ReviewInput, ReviewRecord, StudyState, StudyStats, Subject } from './types'
@@ -59,8 +59,10 @@ function questionSnapshot(question: QuestionSnapshot): QuestionSnapshot {
 /** Rebuild saved questions by schema so retired fields do not survive hydration. */
 function copySavedQuestion(question: Question): Question {
   const organizationStatus = question.organizationStatus ?? 'ready'
+  const knowledgePoint = normalizeKnowledgePoint(question.knowledgePoint, question.subject, organizationStatus === 'pending')
   return {
-    notebookId: question.notebookId, id: question.id, title: question.title, subject: question.subject, stem: question.stem,
+    notebookId: question.notebookId, id: question.id, title: question.title, subject: question.subject,
+    knowledgePoint, relatedKnowledgePoints: normalizeRelatedKnowledgePoints(question.relatedKnowledgePoints, knowledgePoint), stem: question.stem,
     answer: question.answer, analysis: question.analysis, userAnswer: question.userAnswer,
     remark: question.remark ?? '', remarkImages: [...(question.remarkImages ?? [])],
     reflection: normalizeReflection(question.reflection),
@@ -240,6 +242,8 @@ function normalizeQuestion(input: QuestionInput): Omit<Question, 'id' | 'created
   const organizationStatus = input.organizationStatus ?? 'ready'
   if (!['pending', 'ready'].includes(organizationStatus)) throw new Error('请选择有效的整理状态。')
   const subject = organizationStatus === 'pending' && (input.subject === undefined || (typeof input.subject === 'string' && input.subject.trim() === '')) ? '' : normalizeSubject(input.subject)
+  const knowledgePoint = normalizeKnowledgePoint(input.knowledgePoint, subject, organizationStatus === 'pending')
+  const relatedKnowledgePoints = normalizeRelatedKnowledgePoints(input.relatedKnowledgePoints, knowledgePoint)
   const stem = input.stem?.trim() ?? ''
   const images = cleanStrings(input.images)
   const remarkImages = cleanStrings(input.remarkImages)
@@ -255,7 +259,7 @@ function normalizeQuestion(input: QuestionInput): Omit<Question, 'id' | 'created
   return {
     notebookId: input.notebookId,
     title: input.title?.trim() || stem.replace(/\s+/g, ' ').slice(0, 26) || '图片错题',
-    subject, stem,
+    subject, knowledgePoint, relatedKnowledgePoints, stem,
     answer: input.answer?.trim() ?? '', analysis: input.analysis?.trim() ?? '',
     userAnswer: input.userAnswer?.trim() ?? '',
     remark: input.remark?.trim() ?? '', remarkImages,

@@ -268,3 +268,12 @@ export function getTagGroups(subject: string): TagGroup[] {
     tags: [...item.tags],
   }))
 }
+
+/** Subject groups are reused as a restrained knowledge-point catalogue. Shared
+ * question-type and method tags stay available only in the legacy metadata UI. */
+export function getKnowledgeGroups(subject: string): TagGroup[] {
+  const name = subject.trim()
+  const key = Object.prototype.hasOwnProperty.call(SUBJECT_ALIASES, name) ? SUBJECT_ALIASES[name]! : name
+  const subjectGroups = Object.prototype.hasOwnProperty.call(SUBJECT_TAG_GROUPS, key) ? SUBJECT_TAG_GROUPS[key]! : []
+  return subjectGroups.map(item => ({ id: item.id, label: item.label, tags: [...item.tags] }))
+}
