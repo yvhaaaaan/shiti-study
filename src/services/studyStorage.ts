@@ -72,16 +72,23 @@ export async function checkSession() {
   if (result.user?.ID !== storageStatus.user?.ID) resetUploadSession()
   storageStatus.user = result.user
 }
-export async function login(username: string, password: string, inviteCode?: string) {
+export async function login(username: string, password: string, register = false) {
   storageStatus.busy = true; storageStatus.error = ''
   // Stop queued work before the login response can replace the session cookie.
   resetUploadSession()
   try {
-    const result = await request<{ user: NonNullable<typeof storageStatus.user> }>(inviteCode === undefined ? '/api/login' : '/api/register', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, inviteCode }) })
+    const result = await request<{ user: NonNullable<typeof storageStatus.user> }>(register ? '/api/register' : '/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) })
     resetUploadSession()
     storageStatus.initializing = true; storageStatus.user = result.user; storageStatus.expired = false; revision = 0; failedWrite = undefined
   } catch (error) { storageStatus.error = error instanceof Error ? error.message : '登录未完成，请重试。'; throw error }
   finally { storageStatus.busy = false }
+}
+export async function getServerTime(): Promise<Date> {
+  if (!cloudEnabled()) return new Date()
+  const result = await request<{ now?: string; unix?: number }>('/api/time')
+  const parsed = new Date(String(result.now || ''))
+  if (!Number.isFinite(parsed.getTime()) || (result.unix !== undefined && Math.floor(parsed.getTime() / 1000) !== Number(result.unix))) throw new Error('服务器时间服务返回无效结果，本次测试未提交，请重试。')
+  return parsed
 }
 export async function logout() {
   await request('/api/logout', { method: 'POST' })

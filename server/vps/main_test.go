@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func testApp(t *testing.T) *app {
@@ -21,7 +22,6 @@ func testApp(t *testing.T) *app {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { a.db.Close() })
-	a.invite = "class-test-invite"
 	return a
 }
 func call(t *testing.T, a *app, method, path string, body any, cookie *http.Cookie, origin string) *httptest.ResponseRecorder {
@@ -86,10 +86,7 @@ func TestAuthenticationAndIsolation(t *testing.T) {
 	if w := call(t, a, "GET", "/api/state", nil, other, ""); !strings.Contains(w.Body.String(), `"data":null`) {
 		t.Fatal("cross-user data leaked")
 	}
-	if w := call(t, a, "POST", "/api/register", map[string]string{"username": "student", "password": "Student-password", "inviteCode": "wrong"}, nil, "http://study.test"); w.Code != 403 {
-		t.Fatal("invalid invite accepted")
-	}
-	if w := call(t, a, "POST", "/api/register", map[string]string{"username": "student", "password": "Student-password", "inviteCode": a.invite}, nil, "http://study.test"); w.Code != 200 {
+	if w := call(t, a, "POST", "/api/register", map[string]string{"username": "student", "password": "Student-password"}, nil, "http://study.test"); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 	if w := call(t, a, "POST", "/api/logout", nil, owner, "http://study.test"); w.Code != 200 {
@@ -97,6 +94,24 @@ func TestAuthenticationAndIsolation(t *testing.T) {
 	}
 	if w := call(t, a, "GET", "/api/state", nil, owner, ""); w.Code != 401 {
 		t.Fatal("logout did not revoke session")
+	}
+}
+
+func TestServerTimeEndpoint(t *testing.T) {
+	a := testApp(t)
+	w := call(t, a, "GET", "/api/time", nil, nil, "")
+	if w.Code != 200 {
+		t.Fatalf("server time: %d %s", w.Code, w.Body.String())
+	}
+	var result struct {
+		Now  string `json:"now"`
+		Unix int64  `json:"unix"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil || result.Now == "" || result.Unix <= 0 {
+		t.Fatalf("invalid server time response: %s", w.Body.String())
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, result.Now); err != nil || parsed.Unix() != result.Unix {
+		t.Fatalf("inconsistent server time response: %s", w.Body.String())
 	}
 }
 func TestRevisionConflictAndRetry(t *testing.T) {

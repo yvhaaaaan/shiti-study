@@ -7,6 +7,7 @@ import type { ForgeStage, Question, ReviewRating } from '../domain/types'
 import AppIcon from './AppIcon.vue'
 import BrandMark from './BrandMark.vue'
 import { assessAnswer } from '../services/assessment'
+import { getServerTime } from '../services/studyStorage'
 import type { AssessmentResult } from '../domain/assessment'
 import MathText from './MathText.vue'
 import ForgeProgress from './ForgeProgress.vue'
@@ -74,12 +75,13 @@ async function grade(rating: 'wrong' | 'correct') {
   if (rating === 'correct' && !canPass.value) { error.value = '请先完成判题。'; return }
   submitting.value = true; error.value = ''
   try {
+    const serverNow = await getServerTime()
     const safePlanDate = normalizedPlanDate()
     const record = store.submitReview(q.value.id, {
       answer: submittedAnswer.value, rating, expectedContent: expectedContent.value, requestId: requestId.value,
       ...(safePlanDate ? { planDate: safePlanDate } : {}),
       forge: { stage: attemptStage.value, reflection: reflection.value, assessment: { verdict: rating, method: assessment.value.method, feedback: assessment.value.feedback, submittedAnswer: submittedAnswer.value } },
-    })
+    }, serverNow)
     await store.flushPersistence()
     if (record.forge?.retired) throw new Error('题目在保存期间已修改，请重新载入后测试。')
     results.value.push({ questionId: q.value.id, title: record.questionSnapshot?.title || q.value.title, rating: record.rating, stage: record.forge!.stage, completed: forgeProgress(q.value.id, store.state.reviews).completed, planDate: record.planDate })

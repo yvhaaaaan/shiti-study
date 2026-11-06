@@ -51,13 +51,13 @@ const stateLimit = 4 * 1024 * 1024
 const mediaLimit = 2 * 1024 * 1024
 
 type app struct {
-	db                                        *sql.DB
-	dataDir, staticDir, invite, apiKey, model string
-	provider, endpoint                        string
-	client                                    *http.Client
-	aiSlots                                   chan struct{}
-	mu                                        sync.Mutex
-	attempts                                  map[string][]time.Time
+	db                                *sql.DB
+	dataDir, staticDir, apiKey, model string
+	provider, endpoint                string
+	client                            *http.Client
+	aiSlots                           chan struct{}
+	mu                                sync.Mutex
+	attempts                          map[string][]time.Time
 }
 type user struct{ ID, Username string }
 type apiError struct {
@@ -147,7 +147,7 @@ CREATE TABLE IF NOT EXISTS ai_usage(user_id TEXT NOT NULL, day TEXT NOT NULL, co
 		_ = db.Close()
 		return nil, err
 	}
-	a := &app{db: db, dataDir: dataDir, staticDir: staticDir, invite: os.Getenv("SHITI_INVITE_CODE"), provider: env("SHITI_AI_PROVIDER", "mimo"), client: &http.Client{Timeout: 65 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, aiSlots: make(chan struct{}, 1), attempts: map[string][]time.Time{}}
+	a := &app{db: db, dataDir: dataDir, staticDir: staticDir, provider: env("SHITI_AI_PROVIDER", "mimo"), client: &http.Client{Timeout: 65 * time.Second, CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }}, aiSlots: make(chan struct{}, 1), attempts: map[string][]time.Time{}}
 	switch a.provider {
 	case "mimo":
 		a.apiKey, a.model, a.endpoint = os.Getenv("MIMO_API_KEY"), env("MIMO_MODEL", "mimo-v2.6-flash"), "https://api.xiaomimimo.com/v1/chat/completions"
@@ -234,7 +234,7 @@ func (a *app) allowLogin(key string) bool {
 	return true
 }
 func (a *app) auth(w http.ResponseWriter, r *http.Request, register bool) error {
-	var input struct{ Username, Password, InviteCode string }
+	var input struct{ Username, Password string }
 	if err := decode(w, r, 4096, &input); err != nil {
 		return err
 	}
@@ -244,9 +244,6 @@ func (a *app) auth(w http.ResponseWriter, r *http.Request, register bool) error 
 	}
 	var u *user
 	if register {
-		if a.invite == "" || subtle.ConstantTimeCompare([]byte(input.InviteCode), []byte(a.invite)) != 1 {
-			return fail(403, "INVITE_REQUIRED", "邀请码不正确，请向演示者获取邀请码。")
-		}
 		var err error
 		u, err = a.createUser(username, input.Password)
 		if err != nil {
@@ -709,9 +706,14 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, fail(403, "ORIGIN_NOT_ALLOWED", "请从打铁匠页面发起操作。"))
 		return
 	}
+	if r.URL.Path == "/api/time" && r.Method == "GET" {
+		now := time.Now().UTC()
+		jsonResponse(w, 200, map[string]any{"now": now.Format(time.RFC3339Nano), "unix": now.Unix()})
+		return
+	}
 	u := a.currentUser(r)
 	if r.URL.Path == "/api/session" && r.Method == "GET" {
-		jsonResponse(w, 200, map[string]any{"cloud": true, "user": u, "registration": a.invite != ""})
+		jsonResponse(w, 200, map[string]any{"cloud": true, "user": u, "registration": true})
 		return
 	}
 	var err error

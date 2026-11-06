@@ -28,7 +28,7 @@
 | `addQuestion(input)` / `addQuestions(inputs)` | 题干或图片至少一项。指定 notebookId 时校验目标存在；未指定时按科目自动归档。批量校验全部通过后才修改数据。 |
 | `updateQuestion(id, patch)` | 更新原题；题干、答案、原图实质改变时归档旧测试。科目改变后不匹配的关联单科卷转为综合。仅改归属、标题、备注或复盘不重置进度。 |
 | `toggleFavorite` / `deleteQuestion` / `restoreQuestion` | 收藏或软删除/恢复，不级联删除错题本、历史、笔记及试卷引用。 |
-| `submitReview(id, input)` | 校验判题证据、内容快照和阶段；相同 requestId 重试不重复记数。expectedContent 与当前题目不一致时拒绝旧判题结果。 |
+| `submitReview(id, input, now?)` | 校验判题证据、内容快照和阶段；相同 requestId 重试不重复记数。expectedContent 与当前题目不一致时拒绝旧判题结果；云端提交传入服务器时间。 |
 | `setPlan(id, date?)` | 设置或取消提醒，不修改锻造完成状态。 |
 | `saveNote(input)` / `deleteNote(id)` | 管理知识笔记与题目关联；标题必填，文字或附图至少一项。 |
 | `savePaper(input)` | 新选题必须已整理且未删除；原卷已有的暂不可用引用可保留。单科有效题必须匹配，跨科使用综合。 |

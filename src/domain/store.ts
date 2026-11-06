@@ -426,7 +426,7 @@ function restoreQuestions(questionIds: string[]): void {
   persist()
 }
 
-function submitReview(questionId: string, input: ReviewInput): ReviewRecord {
+function submitReview(questionId: string, input: ReviewInput, now = new Date()): ReviewRecord {
   if (!input.requestId?.trim()) throw new Error('缺少复习提交标识，请重试。')
   const requestId = input.requestId.trim()
   const question = getQuestion(questionId)
@@ -441,14 +441,14 @@ function submitReview(questionId: string, input: ReviewInput): ReviewRecord {
   }
   if (!RATINGS.includes(input.rating)) throw new Error('请选择本次掌握情况。')
   if (input.planDate && !validDate(input.planDate)) throw new Error('复习日期格式应为 YYYY-MM-DD。')
-  const now = new Date().toISOString()
+  const nowIso = now.toISOString()
   const forge = normalizeForge(input.forge)
   const answer = input.answer?.trim() ?? ''
   if (forge) validateForgeAttempt(questionId, state.reviews, forge, answer, input.rating !== 'wrong')
   if (input.rating === 'mastered' && (!forge || forge.stage !== 5)) throw new Error('完成五阶锻造后，才能标记为已掌握。')
   const rating = forge && input.rating !== 'wrong' ? forge.stage === 5 ? 'mastered' : 'correct' : input.rating
-  const review: ReviewRecord = { id: id('review'), questionId, answer, rating, requestId, reviewedAt: now, questionSnapshot: questionSnapshot(question), ...(forge ? { forge } : {}) }
-  const today = localDate(new Date(now))
+  const review: ReviewRecord = { id: id('review'), questionId, answer, rating, requestId, reviewedAt: nowIso, questionSnapshot: questionSnapshot(question), ...(forge ? { forge } : {}) }
+  const today = localDate(now)
   const futurePlans = [question.nextReviewDate, rating !== 'mastered' ? input.planDate : undefined]
     .filter((date): date is string => !!date && date > today).sort()
   // A completed due reminder is consumed; future manual reminders survive
@@ -458,8 +458,8 @@ function submitReview(questionId: string, input: ReviewInput): ReviewRecord {
   // Keep the answer recorded on entry; each later attempt belongs to its review.
   question.status = forgeProgress(questionId, state.reviews).completed === 5 ? 'mastered' : 'reinforce'
   question.nextReviewDate = review.planDate
-  question.lastReviewedAt = now
-  question.updatedAt = now
+  question.lastReviewedAt = nowIso
+  question.updatedAt = nowIso
   question.reviewCount = state.reviews.filter((row) => row.questionId === questionId).length
   persist()
   return state.reviews[state.reviews.length - 1]!

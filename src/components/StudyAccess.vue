@@ -8,14 +8,13 @@ const store = useStudyStore()
 const status = store.storageStatus
 const username = ref('')
 const password = ref('')
-const invite = ref('')
 const registering = ref(false)
 async function submit() {
   if (status.busy) return
   try {
-    await login(username.value.trim(), password.value, registering.value ? invite.value : undefined)
+    await login(username.value.trim(), password.value, registering.value)
     await store.initialize(true)
-    password.value = ''; invite.value = ''
+    password.value = ''
   } catch { /* The service exposes a user-facing error without clearing inputs. */ }
 }
 function retry() { void store.initialize(true).catch(() => {}) }
@@ -30,10 +29,9 @@ function retry() { void store.initialize(true).catch(() => {}) }
         <text class="eyebrow">YOUR PROGRESS, EVERYWHERE</text><text class="access-title">{{ registering ? '开启你的学习空间' : '欢迎回来，继续进步' }}</text><text class="access-caption">登录后，电脑与手机共用同一份学习档案。</text>
         <text class="field-label">账号</text><input v-model="username" class="form-input" maxlength="32" placeholder="请输入账号" autocomplete="username" />
         <text class="field-label">密码</text><input v-model="password" class="form-input" password maxlength="128" placeholder="请输入密码" autocomplete="current-password" @confirm="submit" />
-        <template v-if="registering"><text class="field-label">课堂邀请码</text><input v-model="invite" class="form-input" maxlength="64" placeholder="向演示者获取邀请码" /></template>
         <text v-if="status.error" class="access-error" role="alert">{{ status.error }}</text>
-        <button class="button button-primary access-submit" :loading="status.busy" :disabled="status.busy || !username.trim() || !password || (registering && !invite)" @tap="submit">{{ registering ? '创建学习空间' : '登录打铁匠' }}<AppIcon name="arrow-right" :size="18" tone="white" /></button>
-        <button class="text-button access-switch" @tap="registering = !registering; status.error = ''">{{ registering ? '已有账号，返回登录' : '有邀请码？创建独立账号' }}</button>
+        <button class="button button-primary access-submit" :loading="status.busy" :disabled="status.busy || !username.trim() || !password" @tap="submit">{{ registering ? '创建学习空间' : '登录打铁匠' }}<AppIcon name="arrow-right" :size="18" tone="white" /></button>
+        <button class="text-button access-switch" @tap="registering = !registering; status.error = ''">{{ registering ? '已有账号，返回登录' : '还没有账号？创建学习空间' }}</button>
       </template>
       <template v-else><AppIcon name="cloud-off" :size="32" tone="orange" /><text class="access-title">档案暂时没有打开</text><text class="access-error" role="alert">{{ status.error }}</text><button class="button button-primary access-submit" @tap="retry">重新连接</button></template>
       <view class="access-footnote"><AppIcon name="shield-check" :size="16" tone="green" /><text>每一份认真，都有自己的归处。</text></view>
