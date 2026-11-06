@@ -1,0 +1,9 @@
+# Paper assembly animation
+
+Generated with the built-in imagegen tool. A transparent four-frame 2 × 2 sprite sheet, converted to WebP for the app. Original PNG preserved in the image generation archive.
+
+Asset: `src/static/forge/press-cartoon-v1.webp`
+
+## Prompt
+
+Use case: stylized-concept. Asset: production sprite sheet for the paper assembly page of an educational forge app. Create a square transparent-background sprite sheet with EXACT 2 by 2 grid of FOUR equal square frames. The camera, scale, object baseline and location MUST be identical in all four cells, with 12 percent padding from every cell edge. No cell borders, no lines, NO words, letters, symbols that resemble text, numbers, watermarks or labels. Clearly HAND-DRAWN 2D CARTOON animation style: confident dark warm-brown outlines, rounded simplified forms, flat cel shading, three warm tones, matching a cozy terracotta cartoon blacksmith game. NOT realistic, NOT shiny detailed 3D, NO fine engraved texture. Subject: a charming compact tabletop paper binding press / wooden stamper machine, caramel wood frame with chunky dark brown handle above it, a neatly aligned little stack of cream exam paper pages on the base. Warm terracotta wax seal on the paper corner. NO people, no sword, no flame. Frame order reading top-left, top-right, bottom-left, bottom-right: 1 press handle lifted, cream papers waiting on the base; 2 handle lowering as pages gently settle into alignment; 3 press gently stamps the neat paper stack with two tiny butter-yellow star-shaped sparks of completion; 4 handle rises revealing a tidy finished cream paper booklet with warm copper binding. Keep machine body absolutely anchored and identical, only handle moves and papers settle. All frames have the SAME paper stack thickness. Tight compact silhouette and legible at 150pixels; muted caramel, cream, terracotta and dark cocoa palette. True alpha background. 1024x1024 square sheet.

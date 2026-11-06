@@ -1,0 +1,108 @@
+const fs = require('node:fs')
+const path = require('node:path')
+const vm = require('node:vm')
+const assert = require('node:assert/strict')
+const ts = require('typescript')
+const root = path.resolve(__dirname, '..')
+let clock = Date.parse('2026-11-03T10:00:00+08:00')
+class TestDate extends Date { constructor(...args) { super(...(args.length ? args : [clock])) }; static now() { return clock } }
+const writes = []
+let failWrite = false
+const storage = { storageStatus: { cloud: false }, saveLocalState: async data => { if (failWrite) throw new Error('模拟保存失败'); writes.push(structuredClone(data)) } }
+const cache = new Map()
+function load(file) {
+  file = path.resolve(file)
+  if (cache.has(file)) return cache.get(file).exports
+  const module = { exports: {} }; cache.set(file, module)
+  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText
+  vm.runInNewContext(code, { module, exports: module.exports, Date: TestDate, console, Set, Map, Math, Promise, TextEncoder, require(name) {
+    if (name === 'vue') return require('vue')
+    if (name.includes('services/studyStorage')) return storage
+    if (name.startsWith('.')) return load(path.resolve(path.dirname(file), name + '.ts'))
+    throw new Error('Unexpected dependency: ' + name)
+  } }, { filename: file })
+  return module.exports
+}
+const store = load(path.join(root, 'src/domain/store.ts')).useStudyStore()
+const backup = load(path.join(root, 'src/domain/backup.ts'))
+const notebook = load(path.join(root, 'src/domain/notebooks.ts'))
+const forge = load(path.join(root, 'src/domain/forge.ts'))
+async function main() {
+ const check = name => console.log('PASS '+name)
+ const existingCount = store.state.questions.length
+ assert.ok(store.notebooks.value.length >= 5)
+ assert.ok(store.questions.value.every(q => store.notebooks.value.some(b => b.id===q.notebookId)))
+ const once = notebook.migrateNotebooks(JSON.parse(JSON.stringify(store.state)))
+ const twice = notebook.migrateNotebooks(once)
+ assert.equal(once.notebooks.length, twice.notebooks.length)
+ assert.equal(twice.questions.length,existingCount)
+ check('seed and repeated migrations retain subject books and all original questions without duplicate shelves')
+ const empty=store.saveNotebook({title:'我的计算机备考本',audience:'computer',coverId:'algorithms',subject:'计算机'})
+ assert.equal(store.questions.value.filter(q=>q.notebookId===empty.id).length,0)
+ await store.flushPersistence()
+ const portable=await store.exportBackup()
+ const roundtrip=backup.validateBackup(portable)
+ assert.ok(roundtrip.data.notebooks.some(b=>b.id===empty.id))
+ assert.equal(roundtrip.counts.notebooks,store.notebooks.value.length)
+ assert.ok(writes.at(-1).notebooks.some(b=>b.id===empty.id))
+ check('empty custom notebook persists, exports, restores and contributes to backup counts')
+ const q=store.addQuestion({title:'数据库习题',subject:'计算机',stem:'查询关系',answer:'SQL',difficulty:'基础',notebookId:empty.id})
+ store.updateQuestion(q.id,{subject:'专业课'})
+ assert.equal(q.notebookId,empty.id)
+ store.saveNotebook({id:empty.id,title:'重命名后的自建本',audience:'general',coverId:'midnight'})
+ assert.equal(empty.title,'重命名后的自建本')
+ assert.equal(empty.coverId,'midnight')
+ assert.equal(q.notebookId,empty.id)
+ check('explicit notebook membership survives subject changes, renaming and cover changes')
+ const pending=store.addQuestion({subject:'',stem:'后来整理的题目',organizationStatus:'pending'})
+ assert.equal(pending.notebookId,notebook.defaultNotebookId(''))
+ store.updateQuestion(pending.id,{subject:'数学',difficulty:'基础',organizationStatus:'ready',notebookId:pending.notebookId})
+ assert.equal(pending.notebookId,notebook.defaultNotebookId('数学'))
+ const customPending=store.addQuestion({subject:'',stem:'自建本内的草稿',organizationStatus:'pending',notebookId:empty.id})
+ store.updateQuestion(customPending.id,{subject:'数学',difficulty:'基础',organizationStatus:'ready'})
+ assert.equal(customPending.notebookId,empty.id)
+ store.updateQuestion(customPending.id,{notebookId:undefined})
+ assert.equal(customPending.notebookId,notebook.defaultNotebookId('数学'))
+ check('automatic unclassified captures migrate on organization; custom membership stays explicit and can return to automatic routing')
+ const history=store.submitReview(q.id,{requestId:'notebook-move-test',answer:'SQL',rating:'correct',forge:{stage:1,reflection:'',assessment:{verdict:'correct',method:'objective',feedback:'核对正确',submittedAnswer:'SQL'}}})
+ store.moveQuestionsToNotebook([q.id],notebook.defaultNotebookId('数学'))
+ assert.equal(forge.forgeProgress(q.id,store.state.reviews).completed,1)
+ assert.ok(!history.forge.retired)
+ check('moving a question changes membership without erasing test history or progress')
+ const blockedBook = q.notebookId
+ assert.throws(()=>store.deleteNotebook(blockedBook),/清空/)
+ const removable = store.saveNotebook({title:'待删除空本',audience:'general',coverId:'linen'})
+ await store.flushPersistence()
+ store.deleteNotebook(removable.id)
+ await store.flushPersistence()
+ assert.ok(!store.notebooks.value.some(book=>book.id===removable.id))
+ check('notebooks with questions cannot be deleted; empty notebooks can be deleted and persist the change')
+ const before=JSON.stringify(store.state)
+ assert.throws(()=>store.updateQuestion(q.id,{notebookId:'missing',stem:'被拒绝的修改'}),/错题本/)
+ assert.equal(JSON.stringify(store.state),before)
+ assert.throws(()=>store.addQuestions([{subject:'数学',stem:'合法题',difficulty:'基础'},{subject:'数学',stem:'坏题',difficulty:'基础',notebookId:'missing'}]),/错题本/)
+ assert.equal(JSON.stringify(store.state),before)
+ assert.throws(()=>store.saveNotebook({title:' ',audience:'general',coverId:'forest'}),/名称/)
+ assert.throws(()=>store.saveNotebook({title:'未知封面',audience:'general',coverId:'missing'}),/封面/)
+ check('invalid assignments and batch creation reject atomically before question or notebook mutation')
+ const old=JSON.parse(backup.serializeBackup(store.state))
+ delete old.data.notebooks
+ old.data.questions.forEach(row=>delete row.notebookId)
+ const migrated=backup.validateBackup(JSON.stringify(old)).data
+ assert.equal(migrated.questions.length,store.state.questions.length)
+ assert.ok(migrated.questions.every(q=>migrated.notebooks.some(b=>b.id===q.notebookId)))
+ const bad=JSON.parse(backup.serializeBackup(store.state));bad.data.questions[0].notebookId='nonexistent'
+ assert.throws(()=>backup.validateBackup(JSON.stringify(bad)),/不存在/)
+ const duplicate=JSON.parse(backup.serializeBackup(store.state));duplicate.data.notebooks.push(duplicate.data.notebooks[0])
+ assert.throws(()=>backup.validateBackup(JSON.stringify(duplicate)),/重复/)
+ const invalidCover=JSON.parse(backup.serializeBackup(store.state));invalidCover.data.notebooks[0].coverId='unsupported'
+ assert.throws(()=>backup.validateBackup(JSON.stringify(invalidCover)),/封面/)
+ check('legacy backups migrate without data loss; dangling notebook references, duplicate IDs and unsupported covers are rejected')
+ const expectedBooks=store.state.notebooks.length
+ const json=backup.serializeBackup(store.state)
+ await store.importBackup(json)
+ assert.equal(store.state.notebooks.length,expectedBooks)
+ assert.ok(store.state.notebooks.some(b=>b.id===empty.id))
+ check('full import restores custom book metadata and explicit question membership')
+}
+main().catch(error=>{console.error(error);process.exitCode=1})

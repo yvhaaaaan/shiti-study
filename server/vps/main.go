@@ -37,6 +37,9 @@ import (
 //go:embed mimo-prompt.txt
 var mimoPrompt string
 
+//go:embed assessment-prompt.txt
+var assessmentPrompt string
+
 var accountPattern = regexp.MustCompile(`^[a-zA-Z0-9_\-]{3,32}$`)
 var mediaPattern = regexp.MustCompile(`^/api/media/([a-f0-9]{64})$`)
 var selectedChoicePattern = regexp.MustCompile(`^\s*(?:(?:选(?:择)?|选项|答案(?:为|是|[:：])?)\s*)?([A-H])(?:$|[\s.、，,：:（(])`)
@@ -322,6 +325,9 @@ func (a *app) validateState(u *user, raw json.RawMessage) error {
 			}
 		}
 	}
+	if err := validateNotebooks(data); err != nil {
+		return err
+	}
 	var profile map[string]any
 	if json.Unmarshal(data["profile"], &profile) != nil || profile == nil {
 		return fail(400, "INVALID_STATE", "个人资料格式不正确。")
@@ -492,10 +498,14 @@ func (a *app) media(w http.ResponseWriter, r *http.Request, u *user) error {
 }
 func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 	var input struct {
-		Stem    string   `json:"stem"`
-		Images  []string `json:"images"`
-		Subject string   `json:"subject"`
-		Tags    []string `json:"tags"`
+		Operation string   `json:"operation"`
+		Reference string   `json:"reference"`
+		Answer    string   `json:"answer"`
+		Stage     int      `json:"stage"`
+		Stem      string   `json:"stem"`
+		Images    []string `json:"images"`
+		Subject   string   `json:"subject"`
+		Tags      []string `json:"tags"`
 	}
 	if err := decode(w, r, 1024*1024, &input); err != nil {
 		return err
@@ -523,8 +533,16 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 		return err
 	}
 	defer release()
-	wantsStream := strings.Contains(r.Header.Get("Accept"), "text/event-stream")
-	body := map[string]any{"model": a.model, "messages": []map[string]any{{"role": "system", "content": mimoPrompt}, {"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "thinking": map[string]string{"type": "disabled"}, "stream": wantsStream}
+	prompt := mimoPrompt
+	if input.Operation == "assess" {
+		if strings.TrimSpace(input.Reference) == "" || strings.TrimSpace(input.Answer) == "" || utf8.RuneCountInString(input.Reference) > 5000 || utf8.RuneCountInString(input.Answer) > 5000 || input.Stage < 1 || input.Stage > 5 {
+			return fail(400, "INVALID_INPUT", "请补全测试作答、文字题干与参考答案。")
+		}
+		prompt = assessmentPrompt
+		content[0] = map[string]any{"type": "text", "text": mustJSON(map[string]any{"stem": input.Stem, "reference": input.Reference, "answer": input.Answer, "stage": input.Stage})}
+	}
+	wantsStream := input.Operation != "assess" && strings.Contains(r.Header.Get("Accept"), "text/event-stream")
+	body := map[string]any{"model": a.model, "messages": []map[string]any{{"role": "system", "content": prompt}, {"role": "user", "content": content}}, "response_format": map[string]string{"type": "json_object"}, "thinking": map[string]string{"type": "disabled"}, "stream": wantsStream}
 	if a.provider == "deepseek" {
 		body["max_tokens"] = 6144
 	} else {
@@ -568,6 +586,17 @@ func (a *app) generate(w http.ResponseWriter, r *http.Request, u *user) error {
 	raw, err := io.ReadAll(io.LimitReader(response.Body, 256*1024+1))
 	if err != nil || len(raw) > 256*1024 || json.Unmarshal(raw, &upstream) != nil || len(upstream.Choices) == 0 || upstream.Choices[0].FinishReason != "stop" {
 		return fail(502, "INVALID_AI_RESPONSE", "智能整理未返回完整解答，请重试。")
+	}
+	if input.Operation == "assess" {
+		var result struct {
+			Verdict  string `json:"verdict"`
+			Feedback string `json:"feedback"`
+		}
+		if json.Unmarshal([]byte(upstream.Choices[0].Message.Content), &result) != nil || (result.Verdict != "correct" && result.Verdict != "wrong" && result.Verdict != "unresolved") || strings.TrimSpace(result.Feedback) == "" || utf8.RuneCountInString(result.Feedback) > 1000 {
+			return fail(502, "INVALID_AI_RESPONSE", "判题结果不完整，本次不计入锻造，请重试。")
+		}
+		jsonResponse(w, 200, map[string]any{"verdict": result.Verdict, "feedback": result.Feedback, "method": "ai"})
+		return nil
 	}
 	clean, err := validateAIContent(upstream.Choices[0].Message.Content)
 	if err != nil {
@@ -677,7 +706,7 @@ func (a *app) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != "GET" && r.Method != "HEAD" && !mutationAllowed(r) {
-		problem(w, fail(403, "ORIGIN_NOT_ALLOWED", "请从拾题页面发起操作。"))
+		problem(w, fail(403, "ORIGIN_NOT_ALLOWED", "请从打铁匠页面发起操作。"))
 		return
 	}
 	u := a.currentUser(r)
@@ -756,7 +785,7 @@ func entryHandler(urlFile string) http.HandlerFunc {
 		target := strings.TrimSpace(string(data))
 		parsed, parseErr := url.Parse(target)
 		if err != nil || parseErr != nil || parsed.Scheme != "https" || !strings.HasSuffix(parsed.Hostname(), ".trycloudflare.com") || parsed.Path != "" || parsed.RawQuery != "" {
-			jsonResponse(w, 503, map[string]string{"message": "拾题安全入口正在准备，请稍后刷新。"})
+			jsonResponse(w, 503, map[string]string{"message": "打铁匠安全入口正在准备，请稍后刷新。"})
 			return
 		}
 		if r.URL.Path == "/connect" {

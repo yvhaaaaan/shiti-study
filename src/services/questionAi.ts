@@ -29,7 +29,7 @@ export class GenerationCancelledError extends Error {
 const MAX_PAYLOAD = 900 * 1024
 function payloadBytes(text: string) { return encodeURIComponent(text).replace(/%[A-F\d]{2}/gi, 'x').length }
 
-async function prepareImage(source: string, budget: number, targetEndpoint: string): Promise<string> {
+export async function prepareImage(source: string, budget: number, targetEndpoint: string): Promise<string> {
   // #ifdef H5
   const target = new URL(targetEndpoint, window.location.href)
   // Only our authenticated, same-origin VPS endpoint understands private media

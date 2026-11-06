@@ -1,3 +1,4 @@
+import { migrateNotebooks } from './notebooks'
 import type { Note, Paper, Question, ReviewRecord, StudyState } from './types'
 
 export function localDate(value: Date = new Date()): string {
@@ -137,10 +138,10 @@ export function createSeedState(): StudyState {
     { id: 'paper-002', title: '周末复盘 · 基础专项', subject: '综合', questionIds: ['q-english-001', 'q-physics-001', 'q-chemistry-001', 'q-chinese-001'] },
   ]
   const papers: Paper[] = paperData.map((paper, index) => ({ ...paper, createdAt: atDay(-2 + index), updatedAt: atDay(-2 + index) }))
-  return {
-    version: 1,
+  return migrateNotebooks({
+    version: 1 as const,
     questions, notes, papers, reviews,
     profile: { nickname: '林同学', school: '青禾中学', grade: '初三', goal: '每天 20 分钟，把薄弱点学扎实。', avatarColor: '#3465e8' },
     storageError: null,
-  }
+  })
 }

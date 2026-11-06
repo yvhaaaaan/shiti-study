@@ -1,4 +1,6 @@
-# 拾题
+> 当前产品逻辑（2026-11-05）：见 [产品逻辑设计](docs/产品逻辑设计.md)。练习支持今日到期与自主选题，每轮最多10题；五次明确判题通过完成锻造，组卷独立用于打印。
+
+# 打铁匠
 
 Vue 3 + TypeScript + uni-app 错题本，支持响应式 H5 与微信小程序源码。围绕「先收录，再整理，反复巩固」组织文字、题图、解析、笔记和复习记录。
 
@@ -37,6 +39,10 @@ H5 产物位于 `dist/build/h5/`，同时复制至 `dist/client/`；单独构建
 
 ## 我的错题与学习流程
 
+- 「我的错题本」默认按科目展示书架，翻开后只看该科错题；「全部题目」保留跨科搜索与批量管理。首页提供直接翻本与今日练习入口。
+- 每题新增「我的复盘」：当时为什么错、我现在的理解、下次提醒自己；每项最多 2000 字，与原作答、参考解析和备注分开保存。
+- 理解进展按五阶练习记录：识错、重做、讲透、迁移、隔天回验。每阶有独立任务与动画，迁移需补充变式题和核对依据，第五阶至少隔一个自然日；完成后保留整页记录。采用学生对照依据自评，旧掌握标记不伪造为五阶成果。详见 [错题本与五阶锻造](docs/错题本与五阶锻造.md)。
+
 - 卡片展示题干和题图，可切换紧凑列表；支持整理状态、科目、标签、掌握状态和难度筛选，条件可逐项撤销。
 - 搜索覆盖题目、答案、原作答、解析、来源、标签与备注。待整理题目先打开档案，再通过「继续整理」编辑；保存后保留筛选位置。
 - 「我的答案」为选填项，单题与批量录入均可填写，在题目档案中独立展示；每次复习的作答单独记录，不覆盖录入时的答案。
@@ -65,6 +71,7 @@ npm run build:mp-weixin
 
 ```sh
 npm run typecheck
+npm run verify:forge
 node scripts/verify-export.cjs
 npm run build:static
 npm run build:mp-weixin
@@ -72,4 +79,4 @@ npm run build:mp-weixin
 
 导出验证样本写入忽略目录 `.validation/`。Go 后端在 `server/vps/` 内运行 `go test ./...`。
 
-图标采用原创双色插画与 Lucide 圆角线条；H5 加载本地 SVG，小程序使用内置矢量数据。Lucide ISC 许可位于 `src/static/icons/LUCIDE-LICENSE.txt`。修改 `scripts/expressive-icons.cjs` 或 `scripts/generate-icons.cjs` 后，运行 `node scripts/generate-icons.cjs` 更新图标。Logo 保留既有设计。
+图标采用工坊配色的原创双色插画与 Lucide 圆角线条；H5 加载本地 SVG，小程序使用内置矢量数据。Lucide ISC 许可位于 `src/static/icons/LUCIDE-LICENSE.txt`。修改 `scripts/expressive-icons.cjs` 或 `scripts/generate-icons.cjs` 后，运行 `node scripts/generate-icons.cjs` 更新图标。产品标识为原创锤与砧图形。

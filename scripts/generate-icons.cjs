@@ -4,28 +4,28 @@ const lucide = require('lucide-static')
 const { expressiveIcons } = require('./expressive-icons.cjs')
 const names = ['house','layout-dashboard','book-open','book-open-text','notebook-pen','scan-line','plus','search','chevron-right','chevron-left','chevron-down','arrow-up-right','arrow-right','arrow-left','check','x','check-check','clock-3','calendar-days','bell','settings','trash-2','rotate-ccw','sliders-horizontal','list-filter','grid-2x2','list','bookmark','bookmark-check','more-horizontal','file-text','files','download','upload','image','camera','filter','pencil','sparkles','flame','target','chart-no-axes-combined','chart-column','graduation-cap','log-out','check-circle-2','circle-alert','info','keyboard','lightbulb','atom','flask-conical','languages','calculator','quote','arrow-up','command','menu','ellipsis','refresh-cw','folder-open','external-link','copy','mail','shield-check','cloud-check','save','link','play','layers','scan-search','arrow-down','star']
 const aliases = { 'more-horizontal': 'Ellipsis', 'check-circle-2': 'CircleCheck', 'grid-2x2': 'Grid2x2', 'clock-3': 'Clock3' }
-names.push('leaf', 'globe', 'loader-circle', 'cloud-off')
-const tones = { ink: '#244b3d', green: '#39775a', white: '#ffffff', muted: '#7a8e7c', orange: '#a86b38' }
+names.push('leaf', 'globe', 'loader-circle', 'cloud-off', 'hammer', 'anvil')
+const tones = { ink: '#54402e', green: '#b35e31', white: '#ffffff', muted: '#9a8163', orange: '#c07836' }
 // Functional illustrations share a rounded outline, a paper-like fill and one small accent.
 // White button glyphs and compact controls stay linear to keep their contrast and clarity.
 const palettes = {
-  ink: { stroke: tones.ink, fill: '#d5e9dc', accent: '#d4a15f', soft: '#eff5e8', detail: '#7e9b80' },
-  green: { stroke: tones.green, fill: '#c5e3ce', accent: '#c9a363', soft: '#eaf3e3', detail: '#6b9175' },
-  muted: { stroke: tones.muted, fill: '#e2ebde', accent: '#c5ab7d', soft: '#f1f4eb', detail: '#82947a' },
+  ink: { stroke: tones.ink, fill: '#e8dfd6', accent: '#d4a15f', soft: '#f4eee9', detail: '#9a8b7f' },
+  green: { stroke: tones.green, fill: '#e2d4c6', accent: '#c9a363', soft: '#f2ebe4', detail: '#8f7c6d' },
+  muted: { stroke: tones.muted, fill: '#ece4dd', accent: '#c5ab7d', soft: '#f4f0eb', detail: '#93857b' },
   orange: { stroke: tones.orange, fill: '#f4dfb7', accent: '#d79862', soft: '#fcf3e3', detail: '#b28b53' },
 }
 const families = {
   'calendar-days': { stroke: '#95733f', fill: '#f2e2bd', accent: '#b59259', soft: '#fbf4e6' },
   'notebook-pen': { stroke: '#627d8b', fill: '#dce9ec', accent: '#d0a063', soft: '#eff4f5' },
-  files: { stroke: '#527d7d', fill: '#d8eae5', accent: '#cca36e', soft: '#edf5f1' },
+  files: { stroke: '#527d7d', fill: '#e9e1d9', accent: '#cca36e', soft: '#f5f1ed' },
   'chart-no-axes-combined': { stroke: '#7c7293', fill: '#e5e0ee', accent: '#c7a271', soft: '#f4f1f7' },
-  camera: { stroke: '#4a7663', fill: '#cce4d5', accent: '#d6ac6e', soft: '#f2f5e8' },
-  calculator: { stroke: '#447653', fill: '#d3e6d7', accent: '#d3ae70', soft: '#f1f6e9' },
+  camera: { stroke: '#745d4c', fill: '#e3d8cd', accent: '#d6ac6e', soft: '#f4eee9' },
+  calculator: { stroke: '#745a46', fill: '#e6dcd3', accent: '#d3ae70', soft: '#f5f0ea' },
   languages: { stroke: '#987444', fill: '#f1e3c6', accent: '#be9863', soft: '#fcf6e8' },
   atom: { stroke: '#657e9f', fill: '#dbe6f2', accent: '#9fb8d1', soft: '#edf2f8', detail: '#7c93b0' },
   'flask-conical': { stroke: '#916f9c', fill: '#e9daed', accent: '#b698c0', soft: '#f7eff8' },
   'book-open-text': { stroke: '#9d7867', fill: '#efdfd3', accent: '#c79a79', soft: '#f9f1e9' },
-  globe: { stroke: '#587f84', fill: '#d6e9e8', accent: '#a4bd8c', soft: '#eff6ef' },
+  globe: { stroke: '#587f84', fill: '#e8e0d7', accent: '#bba28e', soft: '#f6f2ef' },
 }
 function paletteFor(name, tone) {
   const base = palettes[tone]

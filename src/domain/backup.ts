@@ -1,8 +1,10 @@
+import { migrateNotebooks, normalizeNotebook } from './notebooks'
 import { normalizePaperSubject, normalizeSubject, normalizeTags } from './taxonomy'
-import type { BackupCounts, BackupEnvelope, BackupValidationResult, Note, Paper, Profile, Question, QuestionSnapshot, ReviewRecord, StudyState } from './types'
+import { normalizeForge, normalizeReflection, validateForgeHistory } from './forge'
+import type { BackupCounts, BackupEnvelope, BackupValidationResult, Notebook, Note, Paper, Profile, Question, QuestionSnapshot, ReviewRecord, StudyState } from './types'
 
 export const MAX_BACKUP_BYTES = 50 * 1024 * 1024
-export const BACKUP_LIMITS = { questions: 10000, notes: 5000, papers: 2000, reviews: 50000 } as const
+export const BACKUP_LIMITS = { notebooks: 2000, questions: 10000, notes: 5000, papers: 2000, reviews: 50000 } as const
 
 type Row = Record<string, unknown>
 
@@ -96,13 +98,13 @@ function checkSize(json: string): void {
 
 /** Pure validation: no storage, reactive state, network, or file mutations. */
 export function validateBackup(json: string): BackupValidationResult {
-  if (typeof json !== 'string' || !json.trim()) fail('请先选择或粘贴拾题 JSON 备份。')
+  if (typeof json !== 'string' || !json.trim()) fail('请先选择或粘贴打铁匠 JSON 备份。')
   checkSize(json)
   let parsed: unknown
   try { parsed = JSON.parse(json.replace(/^\uFEFF/, '')) } catch { fail('无法读取 JSON，请确认文件完整且未被修改。') }
   const envelope = object(parsed, '备份文件')
-  if (envelope.format !== 'shiti-backup') fail('这不是拾题备份，请选择由拾题导出的 JSON 文件。')
-  if (envelope.schemaVersion !== 1) fail('暂不支持此备份版本，请使用备份对应版本的拾题应用。')
+  if (envelope.format !== 'shiti-backup') fail('这不是打铁匠备份，请选择由打铁匠导出的 JSON 文件。')
+  if (envelope.schemaVersion !== 1) fail('暂不支持此备份版本，请使用备份对应版本的打铁匠应用。')
   timestamp(envelope.exportedAt, '备份时间')
   const source = object(envelope.data, '备份数据')
   if (source.version !== 1) fail('备份中的数据版本不受支持。')
@@ -144,13 +146,14 @@ export function validateBackup(json: string): BackupValidationResult {
     const nextReviewDate = optionalDate(row, 'nextReviewDate', `${label}复习日期`)
     if (organizationStatus === 'pending' && nextReviewDate) fail(`${label}尚待整理，不能安排复习计划。`)
     if (organizationStatus === 'pending' && organizedAt) fail(`${label}尚待整理，不能标记整理完成时间。`)
-    if (status === 'mastered' && nextReviewDate) fail(`${label}已掌握，不能同时保留待复习计划。`)
     return {
       id: text(row.id, `${label}标识`, true), title: text(row.title, `${label}标题`, true),
+      notebookId: row.notebookId === undefined ? undefined : text(row.notebookId, `${label}所属错题本`, true),
       subject, stem,
       answer: text(row.answer, `${label}答案`), analysis: text(row.analysis, `${label}解析`),
       userAnswer: text(row.userAnswer, `${label}作答`),
       remark, remarkImages,
+      reflection: normalizeReflection(row.reflection),
       tags: normalizeTags(strings(row.tags, `${label}标签`)), difficulty,
       source: text(row.source, `${label}来源`), favorite: boolean(row.favorite, `${label}收藏状态`), status, organizationStatus, organizedAt,
       createdAt: timestamp(row.createdAt, `${label}收录时间`), updatedAt: timestamp(row.updatedAt, `${label}更新时间`),
@@ -158,6 +161,14 @@ export function validateBackup(json: string): BackupValidationResult {
       reviewCount: integer(row.reviewCount, `${label}复习次数`), lastReviewedAt: optionalDate(row, 'lastReviewedAt', `${label}最近复习时间`, true),
     }
   })
+  const notebookRows = source.notebooks === undefined ? undefined : list(source.notebooks, '错题本', BACKUP_LIMITS.notebooks).map((value, index): Notebook => {
+    const label = `第 ${index + 1} 本错题本`, row = object(value, label)
+    const fields = normalizeNotebook({ title: text(row.title, `${label}名称`, true), audience: choice(row.audience, ['k12', 'computer', 'civil', 'general'] as const, `${label}学习方向`), coverId: text(row.coverId, `${label}封面`, true), subject: text(row.subject, `${label}默认科目`) })
+    return { ...fields, id: text(row.id, `${label}标识`, true), createdAt: timestamp(row.createdAt, `${label}创建时间`), updatedAt: timestamp(row.updatedAt, `${label}更新时间`), ...(row.automatic === undefined ? {} : { automatic: boolean(row.automatic, `${label}自动归档标记`) }) }
+  })
+  const migrated = migrateNotebooks({ questions, notebooks: notebookRows })
+  questions.splice(0, questions.length, ...migrated.questions)
+  const notebooks = migrated.notebooks
   assertUnique(questions, (question) => question.id, '题目')
   const questionMap = new Map(questions.map((question) => [question.id, question]))
   function references(value: unknown, label: string): string[] {
@@ -212,15 +223,16 @@ export function validateBackup(json: string): BackupValidationResult {
     }
     const rating = choice(row.rating, ['wrong', 'correct', 'mastered'] as const, `${label}自评`)
     const planDate = optionalDate(row, 'planDate', `${label}下次复习日期`)
-    if (rating === 'mastered' && planDate) fail(`${label}已掌握，不能同时安排待复习日期。`)
     return {
       id: text(row.id, `${label}标识`, true), requestId: text(row.requestId, `${label}提交标识`, true),
       questionId, answer: text(row.answer, `${label}作答`), rating,
       reviewedAt: timestamp(row.reviewedAt, `${label}时间`), planDate, questionSnapshot,
+      forge: normalizeForge(row.forge),
     }
   })
   assertUnique(reviews, (review) => review.id, '复习记录')
   assertUnique(reviews, (review) => review.requestId, '复习提交')
+  validateForgeHistory(reviews)
   const history = new Map<string, { count: number; last?: string }>()
   for (const review of reviews) {
     const current = history.get(review.questionId) ?? { count: 0 }
@@ -239,23 +251,23 @@ export function validateBackup(json: string): BackupValidationResult {
     nickname: text(profileSource.nickname, '昵称', true), school: text(profileSource.school, '学校'),
     grade: text(profileSource.grade, '学习阶段'), goal: text(profileSource.goal, '学习目标'), avatarColor: text(profileSource.avatarColor, '头像颜色'),
   }
-  const counts: BackupCounts = { questions: questions.length, notes: notes.length, papers: papers.length, reviews: reviews.length }
+  const counts: BackupCounts = { notebooks: notebooks.length, questions: questions.length, notes: notes.length, papers: papers.length, reviews: reviews.length }
   const warnings: string[] = []
   if (localImages.size) warnings.push(`备份包含 ${localImages.size} 个本机图片路径（含复习快照，按路径去重）。JSON 仅保存路径，不包含对应图片文件；换设备或浏览器后可能无法显示。`)
   if (temporaryImages.size) warnings.push(`其中 ${temporaryImages.size} 个为临时图片路径，关闭页面或清理缓存后也可能失效。`)
-  return { counts, warnings, localImageCount: localImages.size, data: { version: 1, questions, notes, papers, reviews, profile, storageError: null } }
+  return { counts, warnings, localImageCount: localImages.size, data: { version: 1, notebooks, questions, notes, papers, reviews, profile, storageError: null } }
 }
 
 /** Export only supported fields, and use the same validation as restoration. */
 export function serializeBackup(state: StudyState): string {
   const envelope: BackupEnvelope = {
     format: 'shiti-backup', schemaVersion: 1, exportedAt: new Date().toISOString(),
-    data: { version: 1, questions: state.questions, notes: state.notes, papers: state.papers, reviews: state.reviews, profile: state.profile },
+    data: { version: 1, notebooks: state.notebooks, questions: state.questions, notes: state.notes, papers: state.papers, reviews: state.reviews, profile: state.profile },
   }
   let json: string
   try { json = JSON.stringify(envelope) } catch { fail('当前数据无法生成 JSON 备份，请检查记录后重试。') }
   const { data } = validateBackup(json)
-  envelope.data = { version: 1, questions: data.questions, notes: data.notes, papers: data.papers, reviews: data.reviews, profile: data.profile }
+  envelope.data = { version: 1, notebooks: data.notebooks, questions: data.questions, notes: data.notes, papers: data.papers, reviews: data.reviews, profile: data.profile }
   json = JSON.stringify(envelope)
   checkSize(json)
   return json

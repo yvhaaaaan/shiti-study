@@ -1,10 +1,12 @@
-import { computed, reactive } from 'vue'
+import { defaultNotebook, defaultNotebookId, migrateNotebooks, normalizeNotebook } from './notebooks'
+import { computed, reactive, ref } from 'vue'
 import { createSeedState, dayOffset, localDate } from './seed'
 import { SUBJECTS } from './types'
 import { serializeBackup, validateBackup } from './backup'
 import { isValidSubject, normalizePaperSubject, normalizeSubject, normalizeTags } from './taxonomy'
+import { forgeProgress, normalizeForge, normalizeReflection, questionContentKey, validateForgeAttempt } from './forge'
 import { storageStatus, checkSession, loadLocalState, saveLocalState, loadCloudState, saveCloudState, portableState } from '../services/studyStorage'
-import type { BackupCounts, Difficulty, Note, NoteInput, Paper, PaperInput, Profile, Question, QuestionInput, QuestionSnapshot, ReviewInput, ReviewRecord, StudyState, StudyStats, Subject } from './types'
+import type { BackupCounts, Difficulty, Notebook, NotebookInput, Note, NoteInput, Paper, PaperInput, Profile, Question, QuestionInput, QuestionSnapshot, ReviewInput, ReviewRecord, StudyState, StudyStats, Subject } from './types'
 
 declare const uni: {
   getStorageSync(key: string): unknown
@@ -58,9 +60,10 @@ function questionSnapshot(question: QuestionSnapshot): QuestionSnapshot {
 function copySavedQuestion(question: Question): Question {
   const organizationStatus = question.organizationStatus ?? 'ready'
   return {
-    id: question.id, title: question.title, subject: question.subject, stem: question.stem,
+    notebookId: question.notebookId, id: question.id, title: question.title, subject: question.subject, stem: question.stem,
     answer: question.answer, analysis: question.analysis, userAnswer: question.userAnswer,
     remark: question.remark ?? '', remarkImages: [...(question.remarkImages ?? [])],
+    reflection: normalizeReflection(question.reflection),
     tags: normalizeTags(question.tags), difficulty: question.difficulty, source: question.source,
     favorite: question.favorite, status: question.status, organizationStatus,
     organizedAt: organizationStatus === 'ready' ? question.organizedAt : undefined, createdAt: question.createdAt,
@@ -83,9 +86,9 @@ function loadState(): StudyState {
       !data.notes.every((n) => n && typeof n.id === 'string' && isValidSubject(n.subject) && typeof n.title === 'string' && typeof n.content === 'string' && Array.isArray(n.questionIds)) ||
       !data.papers.every((p) => p && typeof p.id === 'string' && (p.subject === '综合' || isValidSubject(p.subject)) && typeof p.title === 'string' && Array.isArray(p.questionIds)) ||
       !data.reviews.every((r) => r && typeof r.id === 'string' && typeof r.requestId === 'string' && typeof r.questionId === 'string' && typeof r.reviewedAt === 'string' && RATINGS.includes(r.rating) && (r.questionSnapshot === undefined || isQuestionSnapshot(r.questionSnapshot)))) throw new Error('invalid storage')
-    const reviews = data.reviews.map((review) => review.questionSnapshot ? { ...review, questionSnapshot: questionSnapshot(review.questionSnapshot) } : review)
+    const reviews = data.reviews.map((review) => ({ ...review, forge: normalizeForge(review.forge), ...(review.questionSnapshot ? { questionSnapshot: questionSnapshot(review.questionSnapshot) } : {}) }))
     const questions = data.questions.map(copySavedQuestion)
-    return { ...(data as StudyState), questions, reviews, storageError: null }
+    return migrateNotebooks({ ...(data as StudyState), questions, reviews, storageError: null })
   } catch {
     const fallback = createSeedState()
     fallback.storageError = '未能读取本地记录，已载入示例数据。原有存储尚未覆盖。'
@@ -93,10 +96,15 @@ function loadState(): StudyState {
   }
 }
 
-const state = reactive<StudyState>(loadState())
+function syncTestMastery(data: StudyState) {
+  for (const q of data.questions) q.status = forgeProgress(q.id, data.reviews).completed === 5 ? 'mastered' : 'reinforce'
+  return data
+}
+const state = reactive<StudyState>(syncTestMastery(loadState()))
 const questions = computed(() => state.questions.filter((question) => !question.deletedAt))
 const pendingQuestions = computed(() => questions.value.filter((question) => question.organizationStatus === 'pending'))
 const readyQuestions = computed(() => questions.value.filter((question) => question.organizationStatus === 'ready'))
+const notebooks = computed(() => state.notebooks)
 const notes = computed(() => state.notes)
 const papers = computed(() => state.papers)
 const availableSubjects = computed<Subject[]>(() => {
@@ -108,9 +116,12 @@ const availableSubjects = computed<Subject[]>(() => {
   }
   return result
 })
+const studyDay = ref(localDate())
+function refreshDay() { studyDay.value = localDate() }
+const practiceQuestions = computed(() => readyQuestions.value.filter(q => q.answer.trim()))
 const dueQuestions = computed(() => {
-  const today = localDate()
-  return readyQuestions.value.filter((question) => question.status !== 'mastered' && question.nextReviewDate && question.nextReviewDate <= today)
+  const today = studyDay.value
+  return practiceQuestions.value.filter((question) => question.nextReviewDate && question.nextReviewDate <= today)
     .sort((a, b) => (a.nextReviewDate ?? '').localeCompare(b.nextReviewDate ?? '') || a.createdAt.localeCompare(b.createdAt))
 })
 
@@ -119,12 +130,13 @@ const stats = computed<StudyStats>(() => {
   const ready = readyQuestions.value
   const activeIds = new Set(ready.map((question) => question.id))
   const activeReviews = state.reviews.filter((review) => activeIds.has(review.questionId))
-  const today = localDate()
+  const today = studyDay.value
   const reviewDays = new Set(activeReviews.map((review) => dateOfTimestamp(review.reviewedAt)).filter((date): date is string => date !== null))
   let streak = 0
   let offset = reviewDays.has(today) ? 0 : -1
   while (reviewDays.has(dayOffset(offset))) { streak += 1; offset -= 1 }
-  const correct = activeReviews.filter((review) => review.rating !== 'wrong').length
+  const judgedReviews = activeReviews.filter(review => review.forge?.assessment && !review.forge.retired)
+  const correct = judgedReviews.filter(review => review.forge?.assessment?.verdict === 'correct').length
   const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六']
   return {
     total: active.length,
@@ -136,7 +148,7 @@ const stats = computed<StudyStats>(() => {
     dueToday: dueQuestions.value.length,
     reviewCount: activeReviews.length,
     todayReviewCount: activeReviews.filter((review) => dateOfTimestamp(review.reviewedAt) === today).length,
-    accuracy: activeReviews.length ? Math.round(correct / activeReviews.length * 100) : 0,
+    accuracy: judgedReviews.length ? Math.round(correct / judgedReviews.length * 100) : 0,
     streak,
     noteCount: state.notes.length,
     paperCount: state.papers.length,
@@ -200,9 +212,9 @@ async function initialize(force = false): Promise<void> {
       const saved = storageStatus.cloud ? await loadCloudState() : await loadLocalState()
       if (saved) {
         const checked = validateBackup(JSON.stringify({ format: 'shiti-backup', schemaVersion: 1, exportedAt: new Date().toISOString(), data: saved })).data
-        Object.assign(state, checked)
+        Object.assign(state, syncTestMastery(checked))
       } else {
-        if (storageStatus.cloud) Object.assign(state, createSeedState())
+        if (storageStatus.cloud) Object.assign(state, syncTestMastery(createSeedState()))
         else if (state.storageError) throw new Error(state.storageError)
         // Complete and verify migration before displaying the editable app.
         // Legacy localStorage remains intact as a recovery copy.
@@ -238,22 +250,72 @@ function normalizeQuestion(input: QuestionInput): Omit<Question, 'id' | 'created
   if (difficulty !== '' && !DIFFICULTIES.includes(difficulty)) throw new Error('请选择有效的难度。')
   if (organizationStatus === 'ready' && !difficulty) throw new Error('完成整理前请选择题目难度。')
   if (input.nextReviewDate && !validDate(input.nextReviewDate)) throw new Error('复习日期格式应为 YYYY-MM-DD。')
-  const status = input.status === 'mastered' ? 'mastered' : 'reinforce'
+  // Mastery is derived from judged tests, never from an editable input flag.
+  const status = 'reinforce' as const
   return {
+    notebookId: input.notebookId,
     title: input.title?.trim() || stem.replace(/\s+/g, ' ').slice(0, 26) || '图片错题',
     subject, stem,
     answer: input.answer?.trim() ?? '', analysis: input.analysis?.trim() ?? '',
     userAnswer: input.userAnswer?.trim() ?? '',
     remark: input.remark?.trim() ?? '', remarkImages,
+    reflection: normalizeReflection(input.reflection),
     tags: normalizeTags(input.tags), difficulty, source: input.source?.trim() || (organizationStatus === 'pending' ? '快速采集' : '手动录入'),
     favorite: Boolean(input.favorite), status, organizationStatus, images,
-    nextReviewDate: organizationStatus === 'pending' || status === 'mastered' ? undefined : input.nextReviewDate || undefined,
+    nextReviewDate: organizationStatus === 'pending' ? undefined : input.nextReviewDate || undefined,
   }
+}
+
+function resolveNotebook(notebookId: string | undefined, subject: string, now: string): string {
+  if (notebookId !== undefined) {
+    if (!state.notebooks.some(book => book.id === notebookId)) throw new Error('请选择仍存在的错题本。')
+    return notebookId
+  }
+  const key = defaultNotebookId(subject)
+  if (!state.notebooks.some(book => book.id === key)) {
+    if (state.notebooks.length >= 2000) throw new Error('错题本数量已达上限。')
+    state.notebooks.push(defaultNotebook(subject, now))
+  }
+  return key
+}
+
+function saveNotebook(input: NotebookInput): Notebook {
+  const fields = normalizeNotebook(input)
+  const existing = input.id ? state.notebooks.find(book => book.id === input.id) : undefined
+  if (input.id && !existing) throw new Error('这个错题本不存在。')
+  if (!existing && state.notebooks.length >= 2000) throw new Error('错题本数量已达上限。')
+  const now = new Date().toISOString()
+  const book: Notebook = existing ? Object.assign(existing, fields, { automatic: false, updatedAt: now }) : { ...fields, id: id('notebook'), createdAt: now, updatedAt: now }
+  if (!existing) state.notebooks.push(book)
+  persist()
+  return book
+}
+
+function deleteNotebook(notebookId: string): void {
+  const index = state.notebooks.findIndex(book => book.id === notebookId)
+  if (index < 0) throw new Error('这个错题本不存在。')
+  // A notebook is a real container, so deleting it must never orphan a
+  // question. Deleted questions are included as well; they still belong to
+  // the notebook and can be restored later.
+  if (state.questions.some(question => question.notebookId === notebookId)) {
+    throw new Error('请先移动或清空本内题目，空本才可以删除。')
+  }
+  state.notebooks.splice(index, 1)
+  persist()
+}
+
+function moveQuestionsToNotebook(questionIds: string[], notebookId: string): void {
+  if (!state.notebooks.some(book => book.id === notebookId)) throw new Error('目标错题本不存在。')
+  const targets = batchQuestions(questionIds, false)
+  const now = new Date().toISOString()
+  for (const q of targets) { q.notebookId = notebookId; q.updatedAt = now }
+  persist()
 }
 
 function addQuestion(input: QuestionInput): Question {
   const now = new Date().toISOString()
   const normalized = normalizeQuestion(input)
+  normalized.notebookId = resolveNotebook(normalized.notebookId, normalized.subject, now)
   const question: Question = { ...normalized, id: id('question'), createdAt: now, updatedAt: now, reviewCount: 0, organizedAt: normalized.organizationStatus === 'ready' ? now : undefined }
   state.questions.unshift(question)
   persist()
@@ -266,6 +328,11 @@ function addQuestions(inputs: QuestionInput[]): Question[] {
   // a partially added queue. Persistence is scheduled once for the whole batch.
   const normalized = inputs.map(normalizeQuestion)
   const now = new Date().toISOString()
+  // Validate the entire explicit assignment before adding automatic shelves.
+  normalized.forEach(row => { if (row.notebookId !== undefined && !state.notebooks.some(book => book.id === row.notebookId)) throw new Error('请选择仍存在的错题本。') })
+  const missingDefaults = new Set(normalized.filter(row => row.notebookId === undefined && !state.notebooks.some(book => book.id === defaultNotebookId(row.subject))).map(row => defaultNotebookId(row.subject)))
+  if (state.notebooks.length + missingDefaults.size > 2000) throw new Error('错题本数量已达上限。')
+  normalized.forEach(row => { row.notebookId = resolveNotebook(row.notebookId, row.subject, now) })
   const added: Question[] = normalized.map(input => ({ ...input, id: id('question'), createdAt: now, updatedAt: now, reviewCount: 0, organizedAt: input.organizationStatus === 'ready' ? now : undefined }))
   state.questions.unshift(...added)
   persist()
@@ -276,9 +343,27 @@ function updateQuestion(questionId: string, patch: Partial<QuestionInput>): Ques
   const question = getQuestion(questionId)
   const normalized = normalizeQuestion({ ...question, ...patch })
   const now = new Date().toISOString()
+  if (patch.notebookId !== undefined && !state.notebooks.some(book => book.id === patch.notebookId)) throw new Error('请选择仍存在的错题本。')
+  const oldBook = state.notebooks.find(book => book.id === question.notebookId)
+  const automaticUnclassified = (patch.notebookId === undefined || patch.notebookId === question.notebookId) && oldBook?.automatic && oldBook.id === defaultNotebookId('') && !!normalized.subject
+  normalized.notebookId = automaticUnclassified ? resolveNotebook(undefined, normalized.subject, now) : resolveNotebook(normalized.notebookId, normalized.subject, now)
+  const changedProblem = normalized.stem !== question.stem || normalized.answer !== question.answer || JSON.stringify(normalized.images) !== JSON.stringify(question.images)
+  if (changedProblem) {
+    for (const record of state.reviews) if (record.questionId === questionId && record.forge) record.forge.retired = true
+    normalized.status = 'reinforce'
+  }
+  normalized.status = forgeProgress(questionId, state.reviews).completed === 5 ? 'mastered' : 'reinforce'
   const completingOrganization = question.organizationStatus === 'pending' && normalized.organizationStatus === 'ready'
   if (completingOrganization) normalized.nextReviewDate = undefined
   Object.assign(question, normalized, { updatedAt: now, organizedAt: normalized.organizationStatus === 'pending' ? undefined : completingOrganization ? now : question.organizedAt })
+  // A question can move between subjects after being used in a saved paper.
+  // Keep every saved paper valid instead of making the next backup unreadable.
+  for (const paper of state.papers) {
+    if (paper.subject !== '综合' && paper.questionIds.includes(questionId) && paper.questionIds.some(id => state.questions.some(q => q.id === id && q.organizationStatus === 'ready' && q.subject !== paper.subject))) {
+      paper.subject = '综合'
+      paper.updatedAt = now
+    }
+  }
   persist()
   return question
 }
@@ -346,20 +431,32 @@ function submitReview(questionId: string, input: ReviewInput): ReviewRecord {
   const requestId = input.requestId.trim()
   const question = getQuestion(questionId)
   if (question.organizationStatus !== 'ready') throw new Error('请先完成这道题的整理，再开始复习。')
+  if (input.expectedContent !== undefined && input.expectedContent !== questionContentKey(question)) throw new Error('题干、答案或题图已更新，请重新打开题目并作答。')
   const previous = state.reviews.find((review) => review.requestId === requestId)
   if (previous) {
     if (previous.questionId !== questionId) throw new Error('该提交标识已用于另一道题，请重新提交。')
+    if (previous.forge?.retired) throw new Error('这次测试属于已归档的旧版题目，请重新作答。')
     persist()
     return previous
   }
   if (!RATINGS.includes(input.rating)) throw new Error('请选择本次掌握情况。')
   if (input.planDate && !validDate(input.planDate)) throw new Error('复习日期格式应为 YYYY-MM-DD。')
   const now = new Date().toISOString()
-  const review: ReviewRecord = { id: id('review'), questionId, answer: input.answer?.trim() ?? '', rating: input.rating, requestId, reviewedAt: now, questionSnapshot: questionSnapshot(question) }
-  if (input.rating !== 'mastered' && input.planDate) review.planDate = input.planDate
+  const forge = normalizeForge(input.forge)
+  const answer = input.answer?.trim() ?? ''
+  if (forge) validateForgeAttempt(questionId, state.reviews, forge, answer, input.rating !== 'wrong')
+  if (input.rating === 'mastered' && (!forge || forge.stage !== 5)) throw new Error('完成五阶锻造后，才能标记为已掌握。')
+  const rating = forge && input.rating !== 'wrong' ? forge.stage === 5 ? 'mastered' : 'correct' : input.rating
+  const review: ReviewRecord = { id: id('review'), questionId, answer, rating, requestId, reviewedAt: now, questionSnapshot: questionSnapshot(question), ...(forge ? { forge } : {}) }
+  const today = localDate(new Date(now))
+  const futurePlans = [question.nextReviewDate, rating !== 'mastered' ? input.planDate : undefined]
+    .filter((date): date is string => !!date && date > today).sort()
+  // A completed due reminder is consumed; future manual reminders survive
+  // extra practice and are merged with the next default interval.
+  if (futurePlans[0]) review.planDate = futurePlans[0]
   state.reviews.push(review)
   // Keep the answer recorded on entry; each later attempt belongs to its review.
-  question.status = input.rating === 'mastered' ? 'mastered' : 'reinforce'
+  question.status = forgeProgress(questionId, state.reviews).completed === 5 ? 'mastered' : 'reinforce'
   question.nextReviewDate = review.planDate
   question.lastReviewedAt = now
   question.updatedAt = now
@@ -373,7 +470,7 @@ function setPlan(questionId: string, date?: string | null): Question {
   const question = getQuestion(questionId)
   if (question.organizationStatus !== 'ready') throw new Error('请先完成这道题的整理，再安排复习。')
   question.nextReviewDate = date || undefined
-  if (date) question.status = 'reinforce'
+  // Scheduling changes the plan, not the result of a previous test.
   question.updatedAt = new Date().toISOString()
   persist()
   return question
@@ -408,14 +505,25 @@ function deleteNote(noteId: string): void {
 }
 
 function savePaper(input: PaperInput): Paper {
-  const subject = normalizePaperSubject(input.subject)
+  let subject = normalizePaperSubject(input.subject)
   if (!input.title?.trim()) throw new Error('请填写练习卷名称。')
   const existing = input.id ? state.papers.find((paper) => paper.id === input.id) : undefined
   if (input.id && !existing) throw new Error('这份练习卷不存在。')
-  const questionIds = cleanStrings(input.questionIds).filter((questionId) => questions.value.some((question) => question.id === questionId))
+  const questionIds = cleanStrings(input.questionIds)
   if (!questionIds.length) throw new Error('请至少选择一道仍在错题本中的题目。')
-  if (questionIds.some((questionId) => getQuestion(questionId).organizationStatus !== 'ready')) throw new Error('待整理题目暂不能组卷，请先完成整理。')
-  if (subject !== '综合' && questionIds.some((questionId) => getQuestion(questionId).subject !== subject)) throw new Error('跨学科选题时，请将练习卷学科设为“综合”。')
+  const retained = new Set(existing?.questionIds ?? [])
+  const selected = questionIds.map(questionId => {
+    const question = state.questions.find(row => row.id === questionId)
+    if (!question) throw new Error('试卷引用了不存在的题目，请重新选题。')
+    const available = !question.deletedAt && question.organizationStatus === 'ready'
+    if (!available && !retained.has(questionId)) throw new Error('新增选题需为未删除且已整理的题目。')
+    if (available && subject !== '综合' && question.subject !== subject) throw new Error('跨学科选题时，请将试卷学科设为“综合”。')
+    return { question, available }
+  })
+  if (!selected.some(row => row.available)) throw new Error('请至少添加一道已整理且可用的题目，再保存试卷。')
+  // Unavailable references can be retained for later restoration, but must not
+  // make a single-subject paper invalid when editing its available questions.
+  if (subject !== '综合' && selected.some(row => !row.available && row.question.organizationStatus === 'ready' && row.question.subject !== subject)) subject = '综合'
   const now = new Date().toISOString()
   const fields = { title: input.title.trim(), subject, questionIds, updatedAt: now }
   const paper: Paper = existing ? Object.assign(existing, fields) : { ...fields, id: id('paper'), createdAt: now }
@@ -436,7 +544,7 @@ function updateProfile(patch: Partial<Profile>): Profile {
 }
 
 function resetDemo(): void {
-  Object.assign(state, createSeedState())
+  Object.assign(state, syncTestMastery(createSeedState()))
   persist()
 }
 
@@ -452,15 +560,16 @@ async function importBackup(json: string): Promise<BackupCounts> {
   const { data, counts } = validateBackup(json)
   await flushPersistence()
   // Commit the entire replacement before replacing any reactive data.
-  await writeState(data, true)
-  Object.assign(state, data)
+  const normalized = syncTestMastery(data)
+  await writeState(normalized, true)
+  Object.assign(state, normalized)
   storageStatus.savedAt = new Date().toISOString()
   return counts
 }
 
-const store = { state, storageStatus, initialize, flushPersistence, retryPersistence, questions, pendingQuestions, readyQuestions, notes, papers, availableSubjects, dueQuestions, stats, addQuestion, addQuestions, updateQuestion, toggleFavorite, deleteQuestion, restoreQuestion, addTagsToQuestions, deleteQuestions, restoreQuestions, submitReview, setPlan, saveNote, deleteNote, savePaper, updateProfile, resetDemo, exportBackup, validateBackup, importBackup }
+const store = { notebooks, saveNotebook, deleteNotebook, moveQuestionsToNotebook, studyDay, refreshDay, practiceQuestions, state, storageStatus, initialize, flushPersistence, retryPersistence, questions, pendingQuestions, readyQuestions, notes, papers, availableSubjects, dueQuestions, stats, addQuestion, addQuestions, updateQuestion, toggleFavorite, deleteQuestion, restoreQuestion, addTagsToQuestions, deleteQuestions, restoreQuestions, submitReview, setPlan, saveNote, deleteNote, savePaper, updateProfile, resetDemo, exportBackup, validateBackup, importBackup }
 
 /** One reactive instance shared by all Vue pages; mutations always go through these methods. */
 export function useStudyStore() { return store }
 
-export type { BackupCounts, BackupEnvelope, BackupValidationResult, OrganizationStatus, Question, QuestionInput, QuestionSnapshot, Note, NoteInput, Paper, PaperInput, Profile, ReviewInput, ReviewRecord, StudyStats, Subject } from './types'
+export type { Notebook, NotebookInput, NotebookAudience, BackupCounts, BackupEnvelope, BackupValidationResult, OrganizationStatus, Question, QuestionInput, QuestionSnapshot, Note, NoteInput, Paper, PaperInput, Profile, ReviewInput, ReviewRecord, StudyStats, Subject } from './types'

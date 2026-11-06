@@ -91,7 +91,7 @@ export async function changePassword(oldPassword: string, newPassword: string) {
   await request('/api/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ oldPassword, newPassword }) })
 }
 export async function reauthenticate(password: string) {
-  if (!storageStatus.user) throw new Error('请先登录拾题。')
+  if (!storageStatus.user) throw new Error('请先登录打铁匠。')
   await request('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: storageStatus.user.Username, password }) })
   storageStatus.expired = false
 }
@@ -100,7 +100,7 @@ function openDatabase(): Promise<IDBDatabase> {
     const opening = indexedDB.open('shiti-study', 1)
     opening.onupgradeneeded = () => { if (!opening.result.objectStoreNames.contains('state')) opening.result.createObjectStore('state') }
     opening.onerror = () => { database = undefined; reject(new Error('浏览器数据库未能打开，请保留当前内容后重试。')) }
-    opening.onblocked = () => { database = undefined; reject(new Error('请关闭其他拾题页面后再打开数据库。')) }
+    opening.onblocked = () => { database = undefined; reject(new Error('请关闭其他打铁匠页面后再打开数据库。')) }
     opening.onsuccess = () => { const db = opening.result; db.onversionchange = () => { db.close(); database = undefined }; resolve(db) }
   })
   return database

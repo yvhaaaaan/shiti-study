@@ -6,11 +6,38 @@ export type Difficulty = '基础' | '进阶' | '挑战'
 export type OrganizationStatus = 'pending' | 'ready'
 export type QuestionStatus = 'reinforce' | 'mastered'
 export type ReviewRating = 'wrong' | 'correct' | 'mastered'
+export type ForgeStage = 1 | 2 | 3 | 4 | 5
+export interface LearningReflection { mistake: string; insight: string; reminder: string }
+/** Learning evidence; older self-assessed records have no assessment field. */
+export interface ForgeEvidence {
+  stage: ForgeStage
+  reflection: string
+  variantStem?: string
+  variantAnswer?: string
+  /** Historical test belongs to an earlier version of the question. */
+  retired?: boolean
+  assessment?: { verdict: 'correct' | 'wrong'; method: 'objective' | 'ai'; feedback: string; submittedAnswer: string }
+}
 
 /** YYYY-MM-DD in the user's local calendar, never an ISO UTC day slice. */
 export type LocalDate = string
 
+export type NotebookAudience = 'k12' | 'computer' | 'civil' | 'general'
+export interface Notebook {
+  id: string
+  title: string
+  audience: NotebookAudience
+  coverId: string
+  subject: string
+  createdAt: string
+  updatedAt: string
+  /** Automatically generated subject shelves can relocate unclassified captures on organization. */
+  automatic?: boolean
+}
+export interface NotebookInput { id?: string; title: string; audience: NotebookAudience; coverId: string; subject?: string }
+
 export interface Question {
+  notebookId?: string
   id: string
   title: string
   subject: Subject
@@ -20,6 +47,7 @@ export interface Question {
   userAnswer: string
   remark?: string
   remarkImages?: string[]
+  reflection?: LearningReflection
   tags: string[]
   difficulty: Difficulty | ''
   source: string
@@ -37,6 +65,7 @@ export interface Question {
 }
 
 export interface QuestionInput {
+  notebookId?: string
   title?: string
   subject: Subject
   stem: string
@@ -45,6 +74,7 @@ export interface QuestionInput {
   userAnswer?: string
   remark?: string
   remarkImages?: string[]
+  reflection?: LearningReflection
   tags?: string[]
   difficulty?: Difficulty | ''
   source?: string
@@ -104,7 +134,10 @@ export interface ReviewInput {
   rating: ReviewRating
   /** Unique per submit action. Reuse it when retrying the same action. */
   requestId: string
+  /** Frozen problem content at the start of judging; rejects stale judgments. */
+  expectedContent?: string
   planDate?: LocalDate
+  forge?: ForgeEvidence
 }
 
 /** The question as it appeared when the review was submitted. */
@@ -125,6 +158,7 @@ export interface ReviewRecord extends ReviewInput {
 }
 
 export interface StudyState {
+  notebooks: Notebook[]
   version: 1
   questions: Question[]
   notes: Note[]
@@ -135,6 +169,7 @@ export interface StudyState {
 }
 
 export interface BackupCounts {
+  notebooks: number
   /** Includes questions in the recycle bin. */
   questions: number
   notes: number
@@ -185,7 +220,7 @@ export interface StudyStats {
   dueToday: number
   reviewCount: number
   todayReviewCount: number
-  /** Percentage (0–100), based on review records of active, organized questions. */
+  /** Percentage (0–100), based only on current-version judged tests of active, organized questions. */
   accuracy: number
   /** Consecutive local days with a review, counting today or yesterday. */
   streak: number

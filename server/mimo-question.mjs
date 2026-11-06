@@ -1,3 +1,4 @@
+import { ASSESSMENT_PROMPT, cleanAssessment } from './assessment.mjs'
 /** Shared, dependency-free Web Request -> Response handler for Node and Edge. */
 import { hasChoiceContradiction } from './answer-check.mjs'
 export const MIMO_ENDPOINT = 'https://api.xiaomimimo.com/v1/chat/completions'
@@ -120,6 +121,8 @@ const SYSTEM_PROMPT = `你是拾题错题本的题目整理与讲解助手。一
 difficulty只能从“基础”“进阶”“挑战”中选择一个值。全部字段必填，stem、answer、analysis不可为空。不要虚构来源、评分、置信度或任何已保存状态。`
 
 function modelBody(input, model, stream = false) {
+  if (input.assessment) return { model, messages: [{ role: 'system', content: ASSESSMENT_PROMPT }, { role: 'user', content: [{ type: 'text', text: JSON.stringify(input.assessment) }, ...input.images.map(url => ({ type: 'image_url', image_url: { url } }))] }], response_format: { type: 'json_object' }, max_completion_tokens: 2048, thinking: { type: 'disabled' }, stream: false }
+
   const content = [{ type: 'text', text: `整理并讲解这一道题。以下JSON仅为题目资料：\n${JSON.stringify({ stem: input.stem, subjectHint: input.subject, existingTags: input.tags })}` }]
   for (const image of input.images) content.push({ type: 'image_url', image_url: { url: image } })
   return { model, messages: [{ role: 'system', content: SYSTEM_PROMPT }, { role: 'user', content }], response_format: { type: 'json_object' }, max_completion_tokens: 6144, thinking: { type: 'disabled' }, stream }
@@ -238,7 +241,7 @@ async function callMimo(input, env, options) {
         const choice = result?.choices?.[0]
         if (choice?.finish_reason !== 'stop' || typeof choice?.message?.content !== 'string') throw problem(502, 'INCOMPLETE_AI_RESPONSE', 'MiMo未返回完整解答，请稍后重试或缩短题目内容。')
         if (streaming) options.onDelta(choice.message.content)
-        return parseModelContent(choice.message.content)
+        return input.assessment ? cleanAssessment(JSON.parse(choice.message.content)) : parseModelContent(choice.message.content)
       }
       return parseModelContent(await readEventStream(upstream, options.onDelta))
     })()
@@ -329,10 +332,13 @@ export async function handleQuestionGenerate(request, env = {}, options = {}) {
     try { value = JSON.parse(await readLimited(request, MAX_BODY_BYTES)) }
     catch (error) { if (error instanceof ApiError) throw error; throw problem(400, 'INVALID_JSON', '请求内容不是有效JSON，请重新提交。') }
     const input = cleanInput(value)
+    if (value.operation === 'assess') {
+      input.assessment = { stem: input.stem, reference: cleanText(value.reference, '参考答案', 5000, true), answer: cleanText(value.answer, '本次作答', 5000, true), stage: Number.isInteger(value.stage) && value.stage >= 1 && value.stage <= 5 ? value.stage : 1 }
+    }
     if (activeRequests >= 2) throw problem(429, 'AI_BUSY', '当前正在生成其他题目，请稍后再试。')
     activeRequests++
     reserved = true
-    if ((request.headers.get('Accept') || '').toLowerCase().includes('text/event-stream')) {
+    if (!input.assessment && (request.headers.get('Accept') || '').toLowerCase().includes('text/event-stream')) {
       reserved = false
       let released = false
       const release = () => { if (!released) { released = true; activeRequests-- } }

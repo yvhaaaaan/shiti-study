@@ -3,6 +3,7 @@ import type { Difficulty, Subject } from '../domain/types'
 import { storageStatus } from '../services/studyStorage'
 
 export interface QuestionDraftForm {
+  notebookId?: string
   title: string
   subject: Subject
   stem: string
@@ -42,6 +43,7 @@ function validForm(value: unknown): value is QuestionDraftForm {
   const form = value as Partial<QuestionDraftForm>
   const textFields: Array<keyof QuestionDraftForm> = ['title', 'stem', 'answer', 'analysis', 'userAnswer', 'source', 'tags']
   return textFields.every(field => typeof form[field] === 'string')
+    && (form.notebookId === undefined || (typeof form.notebookId === 'string' && form.notebookId.length <= 160))
     && (form.subject === '' || isValidSubject(form.subject))
     && typeof form.difficulty === 'string' && ['', '基础', '进阶', '挑战'].includes(form.difficulty)
     && Array.isArray(form.images) && form.images.every(image => typeof image === 'string')
@@ -52,6 +54,7 @@ function validForm(value: unknown): value is QuestionDraftForm {
 function copyForm(form: QuestionDraftForm): QuestionDraftForm {
   return {
     title: form.title, subject: form.subject, stem: form.stem,
+    ...(form.notebookId !== undefined ? { notebookId: form.notebookId } : {}),
     answer: form.answer, analysis: form.analysis, userAnswer: form.userAnswer,
     remark: form.remark ?? '', remarkImages: [...(form.remarkImages ?? [])],
     difficulty: form.difficulty, source: form.source,
@@ -59,7 +62,7 @@ function copyForm(form: QuestionDraftForm): QuestionDraftForm {
   }
 }
 
-export function readQuestionDraft(questionId?: string | null, remarks?: Pick<QuestionDraftForm, 'remark' | 'remarkImages'>): DraftReadResult {
+export function readQuestionDraft(questionId?: string | null, remarks?: Pick<QuestionDraftForm, 'remark' | 'remarkImages' | 'notebookId'>): DraftReadResult {
   try {
     if (typeof uni === 'undefined') throw new Error('Storage unavailable')
     const stored: unknown = uni.getStorageSync(questionDraftKey(questionId))
@@ -73,6 +76,7 @@ export function readQuestionDraft(questionId?: string | null, remarks?: Pick<Que
       || typeof draft.updatedAt !== 'string' || Number.isNaN(new Date(draft.updatedAt).getTime()) || !validForm(draft.form)) throw new Error('Invalid draft')
     const form = copyForm(draft.form)
     // Drafts created before remarks existed cannot intentionally clear them.
+    if (draft.form.notebookId === undefined && remarks?.notebookId !== undefined) form.notebookId = remarks.notebookId
     if (draft.form.remark === undefined) form.remark = remarks?.remark ?? ''
     if (draft.form.remarkImages === undefined) form.remarkImages = [...(remarks?.remarkImages ?? [])]
     return { draft: { version: 1, questionId: draft.questionId, baseQuestionUpdatedAt: draft.baseQuestionUpdatedAt, updatedAt: draft.updatedAt, form }, error: null }

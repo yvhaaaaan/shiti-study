@@ -106,7 +106,7 @@ export async function exportPaper(paper: PaperForExport, questions: Question[], 
   const images: EmbeddedImage[] = []
   let missingImages = 0
   let body = paragraph(title, 'Title')
-    + paragraph(`拾题 · 错题专项练习    共 ${selected.length} 题`, 'Subtitle')
+    + paragraph(`打铁匠 · 错题专项练习    共 ${selected.length} 题`, 'Subtitle')
     + paragraph('姓名：________________    日期：________________')
     + paragraph('先独立作答，再核对答案。给每一道错题一次重新理解的机会。', 'Subtitle')
 
@@ -123,7 +123,7 @@ export async function exportPaper(paper: PaperForExport, questions: Question[], 
         body += imageParagraph(image, images.length)
       } catch {
         missingImages += 1
-        body += paragraph('［此题图片未能嵌入，请在拾题应用中查看原始题图。］', 'Subtitle')
+        body += paragraph('［此题图片未能嵌入，请在打铁匠应用中查看原始题图。］', 'Subtitle')
       }
     }
     body += paragraph('作答：') + paragraph('________________________________________________________________') + paragraph('________________________________________________________________') + paragraph('')
@@ -142,7 +142,7 @@ export async function exportPaper(paper: PaperForExport, questions: Question[], 
   const files: Record<string, Uint8Array> = {
     '[Content_Types].xml': strToU8(declaration + `<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Default Extension="jpeg" ContentType="image/jpeg"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`),
     '_rels/.rels': strToU8(declaration + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>'),
-    'docProps/core.xml': strToU8(declaration + `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xml(title)}</dc:title><dc:creator>拾题</dc:creator></cp:coreProperties>`),
+    'docProps/core.xml': strToU8(declaration + `<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>${xml(title)}</dc:title><dc:creator>打铁匠</dc:creator></cp:coreProperties>`),
     'word/document.xml': strToU8(declaration + `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${body}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`),
     'word/styles.xml': strToU8(declaration + '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Calibri" w:eastAsia="Microsoft YaHei"/><w:sz w:val="22"/></w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="140" w:line="320" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults><w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:pPr><w:jc w:val="center"/><w:spacing w:after="240"/></w:pPr><w:rPr><w:b/><w:color w:val="173E34"/><w:sz w:val="36"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Subtitle"><w:name w:val="Subtitle"/><w:rPr><w:color w:val="6E7B72"/><w:sz w:val="18"/></w:rPr></w:style><w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="Heading 1"/><w:pPr><w:keepNext/><w:spacing w:before="240" w:after="140"/></w:pPr><w:rPr><w:b/><w:color w:val="173E34"/><w:sz w:val="24"/></w:rPr></w:style></w:styles>'),
     'word/_rels/document.xml.rels': strToU8(declaration + `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${images.map(image => `<Relationship Id="${image.relation}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/${image.name}"/>`).join('')}</Relationships>`),

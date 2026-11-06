@@ -3,15 +3,15 @@
     "path": "pages/index/index",
     "style": {
       "navigationStyle": "custom",
-      "navigationBarTitleText": "拾题",
+      "navigationBarTitleText": "打铁匠",
       "enablePullDownRefresh": false,
-      "backgroundColor": "#f7f8f3"
+      "backgroundColor": "#f4eee4"
     }
   }],
   "globalStyle": {
     "navigationBarTextStyle": "black",
-    "navigationBarBackgroundColor": "#f7f8f3",
-    "backgroundColor": "#f7f8f3",
+    "navigationBarBackgroundColor": "#f4eee4",
+    "backgroundColor": "#f4eee4",
     "backgroundTextStyle": "dark"
   }
 }
