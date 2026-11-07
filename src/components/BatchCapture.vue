@@ -2,7 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import AppIcon from './AppIcon.vue'
 import MathText from './MathText.vue'
-import NotebookPicker from './NotebookPicker.vue'
 import { useStudyStore } from '../domain/store'
 import type { QuestionInput } from '../domain/types'
 import { readCaptureImage } from '../services/captureImage'
@@ -375,7 +374,7 @@ onBeforeUnmount(() => {
   <view ref="overlay" class="modal-overlay batch-overlay" @tap.self="requestClose"><view class="modal-window batch-window" :class="{ 'batch-drag-active': dragActive }">
     <view class="modal-header"><view><text class="eyebrow">KEEP EVERY QUESTION</text><text class="modal-title">批量收录题目</text><text class="batch-header-copy">先收好题目，分类与解析稍后补充。</text></view><button class="icon-button" aria-label="关闭批量录题" :disabled="saving" @tap="requestClose"><AppIcon name="x" /></button></view>
     <scroll-view scroll-y class="modal-scroll batch-scroll"><view class="batch-content">
-      <NotebookPicker v-model="selectedNotebookId" :disabled="busy" />
+       <view v-if="selectedNotebookId" class="legacy-capture-note"><AppIcon name="layers" :size="15" tone="muted" /><text>正在兼容旧版本错题本：批量题目仍会先收录，整理后按科目归档。</text></view>
       <view class="batch-mode-picker" role="group" aria-label="批量录题方式">
         <button class="batch-mode" :class="{ active: mode === 'photos' }" :disabled="busy" :aria-pressed="mode === 'photos'" @tap="changeMode('photos')"><AppIcon name="image" :size="21" tone="green" /><view><text>多张题图</text><text>每张一道，最多 10 张</text></view></button>
         <button class="batch-mode" :class="{ active: mode === 'page' }" :disabled="busy" :aria-pressed="mode === 'page'" @tap="changeMode('page')"><AppIcon name="scan-line" :size="21" tone="green" /><view><text>整页拆题</text><text>一张照片，多道题目</text></view></button>

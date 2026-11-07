@@ -3,11 +3,12 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import QuestionCard from './QuestionCard.vue'
 import { useStudyStore } from '../domain/store'
+import { forgeProgress } from '../domain/forge'
 import type { Question } from '../domain/types'
 
 type Collection = 'all' | 'pending' | 'ready'
-const props = defineProps<{ scope: 'library' | 'favorites' | 'recycle'; search: string; collection: Collection; tag: string; notebookSubject?: string; notebookId?: string }>()
-const emit = defineEmits<{ 'update:search': [value: string]; 'update:collection': [value: Collection]; 'update:tag': [value: string]; open: [id: string]; edit: [id: string]; add: [] }>()
+const props = defineProps<{ scope: 'library' | 'favorites' | 'recycle'; search: string; collection: Collection; knowledgePoint: string; notebookSubject?: string; notebookId?: string }>()
+const emit = defineEmits<{ 'update:search': [value: string]; 'update:collection': [value: Collection]; 'update:knowledgePoint': [value: string]; open: [id: string]; edit: [id: string]; add: [] }>()
 const store = useStudyStore()
 const subject = ref(props.notebookSubject || '')
 const status = ref('')
@@ -20,7 +21,7 @@ const currentPage = ref(1)
 const busy = ref(false)
 const actionError = ref('')
 const pageSize = 8
-const sortOptions = ['最新收录', '最早收录', '最近修改', '复习次数最多']
+const sortOptions = ['最新收录', '最早收录', '最近修改', '复习次数最多', '重要程度优先']
 const statusOptions = ['全部锻造状态', '待练习', '五阶完成']
 const difficultyOptions = ['全部难度', '基础', '进阶', '挑战']
 const collectionOptions: { id: Collection; label: string; icon: string }[] = [
@@ -30,13 +31,13 @@ const collectionOptions: { id: Collection; label: string; icon: string }[] = [
 ]
 const source = computed(() => store.state.questions.filter(q => (props.scope === 'recycle' ? !!q.deletedAt : !q.deletedAt && (props.scope !== 'favorites' || q.favorite)) && (!props.notebookId || q.notebookId === props.notebookId) && (!props.notebookSubject || (q.subject || '__unclassified') === props.notebookSubject)))
 const counts = computed(() => ({ all: source.value.length, pending: source.value.filter(q => q.organizationStatus === 'pending').length, ready: source.value.filter(q => q.organizationStatus !== 'pending').length }))
-const title = computed(() => props.notebookId ? store.notebooks.value.find(book => book.id === props.notebookId)?.title || '我的错题本' : props.notebookSubject ? props.notebookSubject === '__unclassified' ? '待分类收录夹' : `${props.notebookSubject}错题本` : ({ library: '全部错题页', favorites: '我的收藏', recycle: '回收站' })[props.scope])
-const description = computed(() => props.notebookId ? '记录原来的错误，也留下自己的理解。' : ({ library: '每一页，留下原来的错误与现在的理解。', favorites: '值得回看的好题，留在这里。', recycle: '暂时放下的题目，随时可以恢复。' })[props.scope])
+const title = computed(() => props.notebookId ? store.notebooks.value.find(book => book.id === props.notebookId)?.title || '旧版本子' : props.notebookSubject ? props.notebookSubject === '__unclassified' ? '待分类收录夹' : `${props.notebookSubject}错题本` : ({ library: '错题库', favorites: '我的收藏', recycle: '回收站' })[props.scope])
+const description = computed(() => props.notebookId ? '旧版本自定义本子的兼容入口。' : props.notebookSubject ? props.notebookSubject === '__unclassified' ? '还没有选择科目的题目，先放在错题库。' : `这是${props.notebookSubject}科目错题本，可继续按知识点细分。` : ({ library: '所有学科的错题先集中收录在这里，整理后进入对应科目错题本。', favorites: '值得回看的好题，留在这里。', recycle: '手动删除的题目会暂时放在这里，随时可以恢复。' })[props.scope])
 const terms = computed(() => props.search.trim().toLocaleLowerCase().split(/\s+/).filter(Boolean))
-function matches(q: Question, except?: 'subject' | 'tag') {
+function matches(q: Question, except?: 'subject' | 'knowledgePoint') {
   if (props.collection !== 'all' && (q.organizationStatus === 'pending' ? 'pending' : 'ready') !== props.collection) return false
   if (except !== 'subject' && subject.value && (subject.value === '__unclassified' ? !!q.subject : q.subject !== subject.value)) return false
-  if (except !== 'tag' && props.tag && q.knowledgePoint !== props.tag && !(q.relatedKnowledgePoints ?? []).includes(props.tag)) return false
+  if (except !== 'knowledgePoint' && props.knowledgePoint && q.knowledgePoint !== props.knowledgePoint && !(q.relatedKnowledgePoints ?? []).includes(props.knowledgePoint)) return false
   if (status.value && (q.organizationStatus === 'pending' || q.status !== status.value)) return false
   if (difficulty.value && q.difficulty !== difficulty.value) return false
   if (terms.value.length) {
@@ -52,16 +53,17 @@ const subjectOptions = computed(() => {
   names.sort((a, b) => a === '__unclassified' ? 1 : b === '__unclassified' ? -1 : a.localeCompare(b, 'zh-CN'))
   return [{ id: '', label: '全部科目', count: matching.length }, ...names.map(id => ({ id, label: id === '__unclassified' ? '未分类' : id, count: matching.filter(q => (q.subject || '__unclassified') === id).length }))]
 })
-const tagOptions = computed(() => {
-  const points = new Set(source.value.filter(q => matches(q, 'tag')).flatMap(q => [q.knowledgePoint || '待归类', ...(q.relatedKnowledgePoints ?? [])]))
-  if (props.tag) points.add(props.tag)
+const knowledgePointOptions = computed(() => {
+  const points = new Set(source.value.filter(q => matches(q, 'knowledgePoint')).flatMap(q => [q.knowledgePoint || '待归类', ...(q.relatedKnowledgePoints ?? [])]))
+  if (props.knowledgePoint) points.add(props.knowledgePoint)
   return ['全部知识点', ...[...points].sort((a, b) => a.localeCompare(b, 'zh-CN'))]
 })
 const filtered = computed(() => source.value.filter(q => matches(q)).sort((a, b) => {
   if (sortIndex.value === 1) return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)
-  if (sortIndex.value === 2) return b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
-  if (sortIndex.value === 3) return b.reviewCount - a.reviewCount || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
-  return b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+   if (sortIndex.value === 2) return b.updatedAt.localeCompare(a.updatedAt) || b.id.localeCompare(a.id)
+   if (sortIndex.value === 3) return b.reviewCount - a.reviewCount || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+   if (sortIndex.value === 4) return b.importance - a.importance || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
+   return b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id)
 }))
 const totalPages = computed(() => Math.max(1, Math.ceil(filtered.value.length / pageSize)))
 const paginated = computed(() => filtered.value.slice((currentPage.value - 1) * pageSize, currentPage.value * pageSize))
@@ -69,13 +71,13 @@ const allPageSelected = computed(() => !!paginated.value.length && paginated.val
 const filters = computed(() => [
   ...(props.search.trim() ? [{ key: 'search', label: `搜索：${props.search.trim()}` }] : []),
   ...(subject.value ? [{ key: 'subject', label: subject.value === '__unclassified' ? '未分类' : subject.value }] : []),
-  ...(props.tag ? [{ key: 'tag', label: `知识点：${props.tag}` }] : []),
+  ...(props.knowledgePoint ? [{ key: 'knowledgePoint', label: `知识点：${props.knowledgePoint}` }] : []),
   ...(status.value ? [{ key: 'status', label: status.value === 'mastered' ? '五阶完成' : '待练习' }] : []),
   ...(difficulty.value ? [{ key: 'difficulty', label: difficulty.value }] : []),
 ])
 const emptyTitle = computed(() => filters.value.length ? '没有找到匹配的题目' : !source.value.length ? props.scope === 'favorites' ? '还没有收藏的题目' : props.scope === 'recycle' ? '回收站里空空的' : '从第一道错题开始' : props.collection === 'pending' ? '暂时没有待整理题目' : '还没有整理完成的题目')
 const emptyCopy = computed(() => filters.value.length ? '试试减少筛选条件，或换一个关键词。' : !source.value.length ? props.scope === 'favorites' ? '在题目卡片上点一下收藏，就能在这里找到它。' : props.scope === 'recycle' ? '移入回收站的题目会保留在这里。' : '输入文字或上传题图，分类和解析可以稍后补充。' : props.collection === 'pending' ? '已收录的题目都已整理，可以去回看和巩固。' : '进入待整理，手动补充或使用 AI 辅助整理。')
-watch([() => props.scope, () => props.collection, () => props.search, () => props.tag, subject, status, difficulty, sortIndex], () => { currentPage.value = 1; selected.value = []; actionError.value = '' })
+watch([() => props.scope, () => props.collection, () => props.search, () => props.knowledgePoint, subject, status, difficulty, sortIndex], () => { currentPage.value = 1; selected.value = []; actionError.value = '' })
 watch(() => props.scope, () => { clearFilters(); selecting.value = false })
 watch(() => props.collection, value => { if (value === 'pending') { status.value = ''; difficulty.value = '' } })
 watch(totalPages, max => { currentPage.value = Math.min(currentPage.value, max) })
@@ -88,13 +90,13 @@ function changeCollection(value: Collection) {
 function clearFilter(key: string) {
   if (key === 'search') emit('update:search', '')
   if (key === 'subject') subject.value = ''
-  if (key === 'tag') emit('update:tag', '')
+  if (key === 'knowledgePoint') emit('update:knowledgePoint', '')
   if (key === 'status') status.value = ''
   if (key === 'difficulty') difficulty.value = ''
 }
-function clearFilters() { emit('update:search', ''); emit('update:tag', ''); subject.value = ''; status.value = ''; difficulty.value = '' }
+function clearFilters() { emit('update:search', ''); emit('update:knowledgePoint', ''); subject.value = ''; status.value = ''; difficulty.value = '' }
 function showAll() { clearFilters(); emit('update:collection', 'all') }
-function pickTag(event: any) { const index = Number(event.detail.value); emit('update:tag', index > 0 ? tagOptions.value[index] || '' : '') }
+function pickKnowledgePoint(event: any) { const index = Number(event.detail.value); emit('update:knowledgePoint', index > 0 ? knowledgePointOptions.value[index] || '' : '') }
 function onSearch(event: any) { emit('update:search', event.detail.value) }
 function pickStatus(event: any) { status.value = ['', 'reinforce', 'mastered'][Number(event.detail.value)] || '' }
 function pickDifficulty(event: any) { difficulty.value = ['', '基础', '进阶', '挑战'][Number(event.detail.value)] || '' }
@@ -121,7 +123,12 @@ async function retrySave() {
 function batchDelete() {
   if (!selected.value.length || busy.value) return
   const ids = [...selected.value]
-  uni.showModal({ title: `移入回收站 ${ids.length} 道题？`, content: '题目和复习记录会保留，之后可在回收站恢复。', confirmText: '移入回收站', success: result => { if (result.confirm) void saveMutation(() => store.deleteQuestions(ids), '已移入回收站') } })
+  const rows = store.state.questions.filter(question => ids.includes(question.id))
+  const unfinished = rows.filter(question => forgeProgress(question.id, store.state.reviews).completed < 5).length
+  const content = unfinished
+    ? `其中 ${unfinished} 道题的熟练度还未达到 5 星。确定仍要手动删除吗？删除后可在回收站恢复，复习记录会保留。`
+    : '所选题目都已达到 5 星熟练度。删除后会移入回收站，复习记录会保留。'
+  uni.showModal({ title: `移入回收站 ${ids.length} 道题？`, content, confirmText: '确认删除', cancelText: '继续保留', success: result => { if (result.confirm) void saveMutation(() => store.deleteQuestions(ids), '已移入回收站') } })
 }
 const moveOptions = computed(() => ['选择目标错题本', ...store.notebooks.value.map(book => book.title)])
 function moveToNotebook(event: any) {
@@ -149,7 +156,7 @@ function restore(ids: string[]) { if (ids.length) void saveMutation(() => store.
       <view class="notebook-search"><AppIcon name="search" :size="20" tone="muted" /><input :value="search" placeholder="搜索题目、知识点或我的理解" aria-label="搜索错题" confirm-type="search" @input="onSearch" /><button v-if="search" class="icon-button" aria-label="清空题目搜索" @tap="emit('update:search', '')"><AppIcon name="x" :size="16" tone="muted" /></button></view>
       <scroll-view v-if="!notebookSubject" scroll-x class="notebook-subject-scroll" :show-scrollbar="false"><view class="notebook-subjects"><button v-for="item in subjectOptions" :key="item.id" class="notebook-subject" :class="{ active: subject === item.id }" :aria-pressed="subject === item.id" :title="item.label" @tap="subject = item.id"><text>{{ item.label }}</text><text>{{ item.count }}</text></button></view></scroll-view>
       <view class="notebook-filter-row">
-         <picker :range="tagOptions" :value="Math.max(0, tagOptions.indexOf(tag))" @change="pickTag"><view class="notebook-picker" :class="{ chosen: tag }"><AppIcon name="target" :size="15" :tone="tag ? 'green' : 'muted'" /><text>{{ tag || '全部知识点' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
+       <picker :range="knowledgePointOptions" :value="Math.max(0, knowledgePointOptions.indexOf(knowledgePoint))" @change="pickKnowledgePoint"><view class="notebook-picker" :class="{ chosen: knowledgePoint }"><AppIcon name="target" :size="15" :tone="knowledgePoint ? 'green' : 'muted'" /><text>{{ knowledgePoint || '全部知识点' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
         <picker v-if="collection !== 'pending'" :range="statusOptions" :value="status === 'mastered' ? 2 : status === 'reinforce' ? 1 : 0" @change="pickStatus"><view class="notebook-picker" :class="{ chosen: status }"><text>{{ status ? status === 'mastered' ? '五阶完成' : '待练习' : '锻造状态' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
         <picker v-if="collection !== 'pending'" :range="difficultyOptions" :value="Math.max(0, difficultyOptions.indexOf(difficulty))" @change="pickDifficulty"><view class="notebook-picker" :class="{ chosen: difficulty }"><text>{{ difficulty || '难度' }}</text><AppIcon name="chevron-down" :size="13" tone="muted" /></view></picker>
         <text class="notebook-filter-tip">{{ collection === 'pending' ? '先收录，按自己的节奏整理。' : '按科目和知识点，找回需要的题。' }}</text>

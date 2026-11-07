@@ -32,11 +32,16 @@ async function main() {
  const existingCount = store.state.questions.length
  assert.ok(store.notebooks.value.length >= 5)
  assert.ok(store.questions.value.every(q => store.notebooks.value.some(b => b.id===q.notebookId)))
+ assert.ok(store.questions.value.every(q => Number.isInteger(q.importance) && q.importance >= 1 && q.importance <= 5))
  const once = notebook.migrateNotebooks(JSON.parse(JSON.stringify(store.state)))
  const twice = notebook.migrateNotebooks(once)
  assert.equal(once.notebooks.length, twice.notebooks.length)
  assert.equal(twice.questions.length,existingCount)
  check('seed and repeated migrations retain subject books and all original questions without duplicate shelves')
+ const important=store.addQuestion({subject:'数学',stem:'重要程度测试题',difficulty:'基础',importance:5})
+ assert.equal(important.importance,5)
+ assert.throws(()=>store.addQuestion({subject:'数学',stem:'非法重要程度',difficulty:'基础',importance:6}),/重要程度/)
+ check('personal importance is independent data and invalid values are rejected')
  const empty=store.saveNotebook({title:'我的计算机备考本',audience:'computer',coverId:'algorithms',subject:'计算机'})
  assert.equal(store.questions.value.filter(q=>q.notebookId===empty.id).length,0)
  await store.flushPersistence()
@@ -87,10 +92,11 @@ async function main() {
  check('invalid assignments and batch creation reject atomically before question or notebook mutation')
  const old=JSON.parse(backup.serializeBackup(store.state))
  delete old.data.notebooks
- old.data.questions.forEach(row=>delete row.notebookId)
+ old.data.questions.forEach(row=>{delete row.notebookId;delete row.importance})
  const migrated=backup.validateBackup(JSON.stringify(old)).data
  assert.equal(migrated.questions.length,store.state.questions.length)
  assert.ok(migrated.questions.every(q=>migrated.notebooks.some(b=>b.id===q.notebookId)))
+ assert.ok(migrated.questions.every(q=>q.importance===3))
  const bad=JSON.parse(backup.serializeBackup(store.state));bad.data.questions[0].notebookId='nonexistent'
  assert.throws(()=>backup.validateBackup(JSON.stringify(bad)),/不存在/)
  const duplicate=JSON.parse(backup.serializeBackup(store.state));duplicate.data.notebooks.push(duplicate.data.notebooks[0])

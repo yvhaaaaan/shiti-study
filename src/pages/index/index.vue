@@ -58,7 +58,7 @@ const emberSeeds = Array.from({ length: 20 }, (_, index) => ({
   drift: (index % 2 ? 1 : -1) * (12 + (index % 4) * 7),
 }))
 const search = ref('')
-const activeTag = ref('')
+const activeKnowledgePoint = ref('')
 const detailId = ref('')
 const editorOpen = ref(false)
 const editorStartAi = ref(false)
@@ -84,13 +84,13 @@ const helpOpen = ref(false)
 const profileDraft = ref({ ...state.profile })
 const navItems: { id: Page; label: string; icon: string }[] = [
   { id: 'home', label: '首页', icon: 'layout-dashboard' },
-  { id: 'library', label: '我的错题本', icon: 'book-open' },
+  { id: 'library', label: '错题库', icon: 'book-open' },
   { id: 'review', label: '练习', icon: 'calendar-days' },
   { id: 'notes', label: '知识笔记', icon: 'notebook-pen' },
   { id: 'papers', label: '组卷打印', icon: 'files' },
   { id: 'insights', label: '成长记录', icon: 'chart-no-axes-combined' },
 ]
-const titles: Record<Page, string> = { home: '首页', library: '我的错题本', review: '练习', notes: '知识笔记', papers: '组卷打印', insights: '成长记录', favorites: '我的收藏', recycle: '回收站' }
+const titles: Record<Page, string> = { home: '首页', library: '错题库', review: '练习', notes: '知识笔记', papers: '组卷打印', insights: '成长记录', favorites: '我的收藏', recycle: '回收站' }
 const clock = ref(new Date())
 const dateLabel = computed(() => { const now = clock.value; return `${now.getMonth() + 1}月${now.getDate()}日，星期${'日一二三四五六'[now.getDay()]}` })
 const greeting = computed(() => { const hour = clock.value.getHours(); return hour < 11 ? '早上好' : hour < 14 ? '中午好' : hour < 18 ? '下午好' : '晚上好' })
@@ -102,9 +102,9 @@ const dailyQuote = computed(() => {
   return { text: DAILY_QUOTES[index]!, index }
 })
 const lastCaptured = computed(() => questions.value.find(question => question.id === lastCapturedId.value && !question.deletedAt))
-function navigate(target: Page) { store.refreshDay(); page.value = target; libraryVisitKey.value++; mobileMenu.value = false; search.value = ''; activeTag.value = ''; collectionFilter.value = 'all'; nextTick(() => uni.pageScrollTo({ scrollTop: 0, duration: 0 })) }
+function navigate(target: Page) { store.refreshDay(); page.value = target; libraryVisitKey.value++; mobileMenu.value = false; search.value = ''; activeKnowledgePoint.value = ''; collectionFilter.value = 'all'; nextTick(() => uni.pageScrollTo({ scrollTop: 0, duration: 0 })) }
 function openPending() { navigate('library'); collectionFilter.value = 'pending' }
-function globalSearch() { if (search.value.trim()) { mobileMenu.value = false; page.value = 'library'; libraryVisitKey.value++; collectionFilter.value = 'all'; activeTag.value = '' } }
+function globalSearch() { if (search.value.trim()) { mobileMenu.value = false; page.value = 'library'; libraryVisitKey.value++; collectionFilter.value = 'all'; activeKnowledgePoint.value = '' } }
 function openQuestion(id: string) { detailId.value = id }
 function newQuestion(mode: 'manual' | 'image' = 'manual', notebookId?: string) { captureOrigin.value = page.value; captureNotebookId.value = notebookId; captureInitialMode.value = mode; captureOpen.value = true; mobileMenu.value = false }
 function addToNotebook(notebookId?: string) { newQuestion('manual', notebookId) }
@@ -148,7 +148,7 @@ function practice(ids: string[], title = '专注复习') {
   detailId.value = ''; reviewIds.value = valid.slice(0, 10); reviewTitle.value = title
 }
 async function notifySaved(title: string): Promise<boolean> { try { await store.flushPersistence(); uni.showToast({ title, icon: 'success' }); return true } catch (error) { uni.showToast({ title: error instanceof Error ? error.message : '保存尚未完成，当前内容仍保留', icon: 'none', duration: 3500 }); return false } }
-function searchByTag(tag: string) { navigate('library'); activeTag.value = tag; detailId.value = '' }
+function searchByKnowledgePoint(point: string) { navigate('library'); activeKnowledgePoint.value = point; detailId.value = '' }
 
 
 function openHelp() { mobileMenu.value = false; helpOpen.value = true }
@@ -230,7 +230,7 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', handleMenuKey); 
           <view class="home-bottom-note"><AppIcon name="hammer" :size="17" tone="orange" /><text>每一锤，都让理解更扎实。</text><text class="home-bottom-en">FORGE YOUR UNDERSTANDING.</text></view>
         </template>
 
-        <NotebookLibrary v-else-if="['library', 'favorites', 'recycle'].includes(page)" :key="libraryVisitKey" :scope="page === 'favorites' ? 'favorites' : page === 'recycle' ? 'recycle' : 'library'" v-model:search="search" v-model:collection="collectionFilter" v-model:tag="activeTag" @open="openQuestion" @edit="editQuestion" @add="addToNotebook" @test="navigate('review')" />
+         <NotebookLibrary v-else-if="['library', 'favorites', 'recycle'].includes(page)" :key="libraryVisitKey" :scope="page === 'favorites' ? 'favorites' : page === 'recycle' ? 'recycle' : 'library'" v-model:search="search" v-model:collection="collectionFilter" v-model:knowledge-point="activeKnowledgePoint" @open="openQuestion" @edit="editQuestion" @add="addToNotebook" @test="navigate('review')" />
 
         <PracticeHub v-else-if="page === 'review'" @practice="practice" @open="openQuestion" @edit="editQuestion" @library="navigate('library')" @pending="openPending" />
         <KnowledgeView v-else-if="page === 'notes'" @open-question="openQuestion" @practice="practice($event, '知识点巩固')" />
@@ -245,10 +245,10 @@ onBeforeUnmount(() => { document.removeEventListener('keydown', handleMenuKey); 
     <QuickCapture v-if="captureOpen" :notebook-id="captureNotebookId" :initial-mode="captureInitialMode" @close="captureOpen = false" @saved="onCaptured" />
     <BatchCapture v-if="batchCaptureOpen" :notebook-id="captureNotebookId" @close="batchCaptureOpen = false" @saved="onBatchCaptured" />
     <QuestionEditor v-if="editorOpen" :question="editingQuestion" :auto-generate="editorStartAi" :focus-remark="editorFocusRemark" @close="editorOpen = false" @saved="onSaved" />
-    <QuestionDetail v-if="detailId" :id="detailId" @close="detailId = ''" @edit="editQuestion" @edit-remark="editQuestion($event, false, true)" @practice="practice" @search-tag="searchByTag" />
+     <QuestionDetail v-if="detailId" :id="detailId" @close="detailId = ''" @edit="editQuestion" @edit-remark="editQuestion($event, false, true)" @practice="practice" @search-knowledge-point="searchByKnowledgePoint" />
     <ReviewSession v-if="reviewIds.length" :ids="reviewIds" :title="reviewTitle" @close="reviewIds = []" />
     <view v-if="profileOpen" class="modal-overlay" @tap.self="profileOpen = false"><view class="modal-window profile-window"><view class="modal-header"><view><text class="eyebrow">YOUR OWN PACE</text><text class="modal-title">你的学习空间</text></view><button class="icon-button" aria-label="关闭资料" @tap="profileOpen = false"><AppIcon name="x" /></button></view><scroll-view scroll-y class="modal-scroll"><view class="profile-content"><view class="profile-large-avatar">{{ profileDraft.nickname.slice(0, 1) || '拾' }}</view><text class="field-label">怎么称呼你</text><input v-model="profileDraft.nickname" class="form-input" maxlength="12" placeholder="你的昵称" /><view class="form-columns"><view><text class="field-label">学习阶段</text><input v-model="profileDraft.grade" class="form-input" maxlength="20" placeholder="例如：高二" /></view><view><text class="field-label">学校或学习方向</text><input v-model="profileDraft.school" class="form-input" maxlength="20" placeholder="例如：我的自习室" /></view></view><text class="field-label">给自己的小目标</text><input v-model="profileDraft.goal" class="form-input" maxlength="60" placeholder="不急，每天多懂一点" /><view class="local-data-info"><AppIcon name="shield-check" :size="19" tone="green" /><view><text>{{ storageStatus.cloud ? '属于你的云端学习空间' : '属于你的本地学习空间' }}</text><text>{{ storageStatus.cloud ? '题目、题图和复习记录保存在服务器。电脑与手机登录同一账号，即可继续查看；切换设备后刷新页面获取最新档案。' : '题目、笔记和记录保存在当前浏览器数据库。建议定期导出备份；如需跨设备使用，可前往服务器版。' }}</text></view></view><button class="profile-backup-link" @tap="openDataManager"><AppIcon name="download" :size="16" tone="green" /><text>备份与恢复我的学习档案</text><AppIcon name="chevron-right" :size="14" tone="muted" /></button><view v-if="storageStatus.cloud" class="cloud-account"><text class="field-label">账号：{{ storageStatus.user?.Username }}</text><input v-model="oldPassword" class="form-input" password placeholder="原登录密码" maxlength="128" /><input v-model="newPassword" class="form-input" password placeholder="新密码，至少10位" maxlength="128" /><button class="button button-quiet" :loading="passwordSaving" :disabled="!oldPassword || newPassword.length < 10" @tap="saveAccountPassword">更新登录密码</button><button v-if="storageStatus.expired" class="button button-quiet" :disabled="!oldPassword" @tap="renewSession">使用原密码恢复登录</button><button class="text-button" @tap="signOut">退出当前账号</button></view><button v-else class="button button-quiet" @tap="openServerWorkspace">前往服务器云端版<AppIcon name="arrow-up-right" :size="15" tone="green" /></button><button class="text-button reset-demo" @tap="resetDemo"><AppIcon name="refresh-cw" :size="14" tone="muted" /><text>重新载入示例数据</text></button></view></scroll-view><view class="modal-footer"><button class="button button-quiet" @tap="profileOpen = false">取消</button><button class="button button-primary" @tap="saveProfile">保存个人信息</button></view></view></view>
-    <view v-if="helpOpen" class="modal-overlay" @tap.self="helpOpen = false"><view class="modal-window help-window"><view class="modal-header"><text class="modal-title">把错题，慢慢变成会做的题</text><button class="icon-button" aria-label="关闭指南" @tap="helpOpen = false"><AppIcon name="x" /></button></view><view class="help-content"><view v-for="(item, index) in [{title:'收录与整理',text:'添加文字或题图，保存后即已收录。科目、标签和解析可以稍后补充，也可使用 AI 整理并核对结果。'}, {title:'主动回忆',text:'先独立重做，再查看解答，诚实记录掌握情况。'}, {title:'安排下一次',text:'在题目档案选择复习日期，首页学习概览会列出到期任务。'}, {title:'串起知识',text:'把相关题目连到笔记，也可以自主组卷、下载Word练习。'}]" :key="index" class="help-step"><text>{{ String(index + 1).padStart(2, '0') }}</text><view><text>{{ item.title }}</text><text>{{ item.text }}</text></view></view><button class="button button-primary" @tap="helpOpen = false">开始我的学习</button></view></view></view>
+     <view v-if="helpOpen" class="modal-overlay" @tap.self="helpOpen = false"><view class="modal-window help-window"><view class="modal-header"><text class="modal-title">把错题，慢慢变成会做的题</text><button class="icon-button" aria-label="关闭指南" @tap="helpOpen = false"><AppIcon name="x" /></button></view><view class="help-content"><view v-for="(item, index) in [{title:'收录与整理',text:'添加文字或题图，保存后即已收录。科目、知识点和解析可以稍后补充，也可使用 AI 整理并核对结果。'}, {title:'主动回忆',text:'先独立重做，再查看解答，诚实记录掌握情况。'}, {title:'安排下一次',text:'在题目档案选择复习日期，首页学习概览会列出到期任务。'}, {title:'串起知识',text:'把相关题目连到笔记，也可以自主组卷、下载Word练习。'}]" :key="index" class="help-step"><text>{{ String(index + 1).padStart(2, '0') }}</text><view><text>{{ item.title }}</text><text>{{ item.text }}</text></view></view><button class="button button-primary" @tap="helpOpen = false">开始我的学习</button></view></view></view>
   </view>
   </view>
 </template>

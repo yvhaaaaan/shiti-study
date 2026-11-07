@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import MathText from './MathText.vue'
 import QuestionFlowSteps from './QuestionFlowSteps.vue'
-import NotebookPicker from './NotebookPicker.vue'
 import { useStudyStore } from '../domain/store'
 import { canUseLocalOcr, OcrCancelledError, startQuestionOcr } from '../services/questionOcr'
 import type { OcrTask } from '../services/questionOcr'
@@ -336,7 +335,7 @@ onBeforeUnmount(() => {
     <view class="modal-header"><view><text class="eyebrow">KEEP A QUESTION</text><text class="modal-title">添加错题</text></view><button class="icon-button quick-close" aria-label="关闭快速收录" @tap="requestClose"><AppIcon name="x" /></button></view>
     <QuestionFlowSteps :active="1" />
     <scroll-view scroll-y class="quick-capture-scroll"><view class="quick-capture-content">
-      <NotebookPicker v-model="selectedNotebookId" :disabled="saving || selecting || !!savedQuestionId" />
+       <view v-if="selectedNotebookId" class="legacy-capture-note"><AppIcon name="layers" :size="15" tone="muted" /><text>正在兼容旧版本错题本：题目仍会先收录，整理后按科目归档。</text></view>
       <!-- #ifdef H5 -->
       <view class="quick-desktop-drop" :class="{ 'quick-desktop-drop-active': dragActive }" aria-live="polite"><AppIcon name="image" :size="21" tone="green" /><view><text>{{ dragActive ? '松开图片，添加题图' : '拖入图片，或直接粘贴截图' }}</text><text>只需文字或题图即可保存 · 识别与整理可以稍后进行</text></view><AppIcon :name="dragActive ? 'plus' : 'image'" :size="19" tone="muted" /></view>
       <!-- #endif -->
@@ -357,7 +356,7 @@ onBeforeUnmount(() => {
       <view v-if="recognizedText" class="quick-ocr-result"><view class="quick-result-heading"><AppIcon name="check-circle-2" :size="18" tone="green" /><text>识别结果，先核对一下</text></view><textarea v-model="recognizedText" class="form-textarea quick-result-text" :maxlength="20000" aria-label="OCR识别文字预览" /><text class="quick-result-hint" :class="{ 'quick-error': resultStale || recognizedText.length > 5000 }">{{ resultStale ? '题干或题图已更改，请重新识别后再填入，避免覆盖新内容。' : recognizedText.length > 5000 ? '识别内容超过5000字，请先精简识别结果再填入。' : '请核对公式、符号与手写内容。填入只更新题干，原图仍然保留。' }}</text><view class="quick-result-actions"><button class="button button-quiet button-small" @tap="recognizedText = ''">暂不填入</button><button class="button button-primary button-small quick-ocr-apply" :disabled="resultStale || !recognizedText.trim() || recognizedText.length > 5000" @tap="applyRecognition">填入题干</button></view></view>
       <view v-if="saveError" class="quick-save-error" role="alert"><AppIcon name="circle-alert" :size="18" tone="orange" /><text>{{ saveError }}</text></view>
     </view></scroll-view>
-    <text class="quick-organize-description" aria-live="polite">保存后即为“已收录 · 待整理”。科目、标签与解析均可稍后补充。</text>
+     <text class="quick-organize-description" aria-live="polite">保存后先进入错题库。科目、知识点与解析均可稍后补充。</text>
     <view class="modal-footer quick-capture-footer"><button class="button button-quiet quick-cancel" :disabled="saving" @tap="requestClose">取消</button><button class="button button-quiet quick-capture-save quick-save-ai" :disabled="saving || selecting || (!stem.trim() && !images.length)" :loading="saving && organizeMode === 'ai'" @tap="save('ai')"><AppIcon name="sparkles" :size="17" tone="green" /><text>保存并 AI 整理</text></button><button class="button button-primary quick-save-later" :disabled="saving || selecting || (!stem.trim() && !images.length)" :loading="saving && organizeMode === 'later'" @tap="save('later')"><AppIcon name="check" :size="17" tone="white" /><text>保存题目</text></button></view>
   </view></view>
 </template>

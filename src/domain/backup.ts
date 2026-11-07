@@ -1,5 +1,5 @@
 import { migrateNotebooks, normalizeNotebook } from './notebooks'
-import { normalizeKnowledgePoint, normalizePaperSubject, normalizeRelatedKnowledgePoints, normalizeSubject, normalizeTags } from './taxonomy'
+import { normalizeImportance, normalizeKnowledgePoint, normalizePaperSubject, normalizeRelatedKnowledgePoints, normalizeSubject, normalizeTags } from './taxonomy'
 import { normalizeForge, normalizeReflection, validateForgeHistory } from './forge'
 import type { BackupCounts, BackupEnvelope, BackupValidationResult, Notebook, Note, Paper, Profile, Question, QuestionSnapshot, ReviewRecord, StudyState } from './types'
 
@@ -154,7 +154,7 @@ export function validateBackup(json: string): BackupValidationResult {
       subject,
        knowledgePoint, relatedKnowledgePoints, stem,
       answer: text(row.answer, `${label}答案`), analysis: text(row.analysis, `${label}解析`),
-      userAnswer: text(row.userAnswer, `${label}作答`),
+      userAnswer: text(row.userAnswer, `${label}作答`), importance: normalizeImportance(row.importance),
       remark, remarkImages,
       reflection: normalizeReflection(row.reflection),
       tags: normalizeTags(strings(row.tags, `${label}标签`)), difficulty,

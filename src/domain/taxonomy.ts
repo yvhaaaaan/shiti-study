@@ -1,10 +1,20 @@
-import type { PaperSubject, Subject } from './types'
+import type { PaperSubject, QuestionImportance, Subject } from './types'
 
 export const SUBJECT_MAX_LENGTH = 20
 export const MAX_TAGS = 30
 export const MAX_TAG_LENGTH = 32
 export const MAX_KNOWLEDGE_POINT_LENGTH = 40
 export const MAX_RELATED_KNOWLEDGE_POINTS = 4
+export const QUESTION_IMPORTANCE_LEVELS: readonly QuestionImportance[] = [1, 2, 3, 4, 5]
+
+export function normalizeImportance(value: unknown): QuestionImportance {
+  // Older records do not have this field; use a neutral default while keeping
+  // malformed new values from silently entering the study state.
+  if (value === undefined || value === null || value === '') return 3
+  const parsed = typeof value === 'number' ? value : Number(value)
+  if (!Number.isInteger(parsed) || !QUESTION_IMPORTANCE_LEVELS.includes(parsed as QuestionImportance)) throw new Error('重要程度应为 1 至 5 星。')
+  return parsed as QuestionImportance
+}
 
 function characterCount(value: string): number { return Array.from(value).length }
 

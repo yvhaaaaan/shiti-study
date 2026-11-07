@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue'
 import AppIcon from './AppIcon.vue'
 import MathText from './MathText.vue'
 import AnimatedForgeScene from './AnimatedForgeScene.vue'
+import StarMeter from './StarMeter.vue'
 import { useStudyStore } from '../domain/store'
 import { forgeProgress } from '../domain/forge'
 
@@ -116,7 +117,7 @@ async function schedule(id: string, date?: string) {
             <view class="pd-question-meta"><text class="pd-subject">{{ row.q.subject }}</text><text>{{ row.completed === 5 ? '已成锋' : row.completed ? '锻造中' : '新铁料' }} · {{ row.completed }}/5</text><text v-if="row.q.nextReviewDate && row.q.nextReviewDate <= today" class="pd-due">{{ row.q.nextReviewDate < today ? '待回炉' : '今日回炉' }}</text></view>
             <button class="pd-question-title" @tap.stop="emit('open', row.q.id)">{{ row.q.title }}</button>
             <MathText inline :text="row.q.stem || (row.q.images.length ? `包含 ${row.q.images.length} 张题图，可打开题目查看` : '题干待补充')" class="pd-question-stem" />
-            <view class="pd-progress" :aria-label="`累计答对 ${row.completed} 次，共五阶`"><view v-for="step in 5" :key="step" :class="{ done: row.completed >= step }" /></view>
+             <view class="pd-star-row"><StarMeter :value="row.q.importance" label="重要" tone="gold" compact /><StarMeter :value="row.completed" label="熟练度" tone="green" compact /></view><view class="pd-progress" :aria-label="`累计答对 ${row.completed} 次，共五阶`"><view v-for="step in 5" :key="step" :class="{ done: row.completed >= step }" /></view>
           </view>
         </view>
         <view class="pd-question-footer" @tap.stop><button class="pd-open" @tap="emit('open', row.q.id)">查看题目<AppIcon name="arrow-up-right" :size="12" tone="orange" /></button><view class="pd-plan"><text>{{ savingPlan === row.q.id ? '正在保存…' : row.q.nextReviewDate || '未设提醒' }}</text><picker mode="date" :value="row.q.nextReviewDate || today" @change="schedule(row.q.id, $event.detail.value)"><view class="pd-plan-button">{{ row.q.nextReviewDate ? '改期' : '设提醒' }}</view></picker><button v-if="row.q.nextReviewDate" :disabled="!!savingPlan" @tap="schedule(row.q.id)">取消</button></view></view>
@@ -141,4 +142,8 @@ async function schedule(id: string, date?: string) {
 @media(max-width:600px){.pd-heading{margin:0 0 15px}.pd-title{font-size:24px}.pd-subtitle{font-size:12px}.pd-date{display:none}.pd-desk{grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;min-height:202px;padding:12px 15px 12px 8px;border-radius:17px}.pd-animation{height:180px;align-self:center}.pd-desk-controls{padding:3px 0}.pd-desk-label{font-size:12px;letter-spacing:.5px}.pd-desk-count{margin-top:6px}.pd-desk-count>text:first-child{font-size:32px}.pd-desk-count>text:last-child{font-size:12px}.pd-desk-status{font-size:11px;margin-top:6px;line-height:1.6}.pd-material-slots{gap:3px;margin:10px 0 13px}.pd-material-slots>view{height:4px}.pd-start{font-size:13px;min-height:41px;padding:10px 7px;gap:6px;border-radius:9px}.pd-auto-select{font-size:11px;margin-top:8px;padding:4px 0;gap:4px}.pd-preparation{align-items:flex-start;padding:10px 11px;gap:9px;margin:12px 0 15px}.pd-preparation-title{font-size:11px;gap:5px}.pd-preparation-actions{justify-content:flex-end;gap:5px 10px}.pd-preparation-actions>button{font-size:11px;white-space:nowrap}.pd-modes{width:100%;box-sizing:border-box;margin:17px 0 12px}.pd-modes>button{flex:1;font-size:12px;padding:8px 9px;gap:6px;min-height:35px}.pd-mode-count{font-size:11px}.pd-search>input{font-size:12px}.pd-filter-toggle{font-size:11px;padding:9px 10px;gap:5px}.pd-subjects>button{font-size:11px}.pd-selection-bar{font-size:11px;margin-top:14px}.pd-selection-bar>view{gap:9px}.pd-selection-bar>button{font-size:11px}.pd-selection-tip{font-size:11px}.pd-question{padding:14px 12px 10px;border-radius:11px}.pd-question-main{gap:9px}.pd-checkbox{width:18px;height:18px;border-radius:5px}.pd-question-meta{font-size:11px;gap:6px}.pd-subject{padding:1px 5px}.pd-question-title{font-size:14px;margin:7px 0 5px}.pd-question-stem{font-size:12px;max-height:46px}.pd-question-footer{gap:7px;margin-top:12px;padding-top:8px}.pd-plan{font-size:11px;gap:7px}.pd-open,.pd-plan-button,.pd-plan>button{font-size:11px}.pd-progress{margin-top:10px}.pd-empty{padding:26px 15px;font-size:12px}.pd-empty-title{font-size:15px}.pd-footnote{font-size:11px;text-align:left;margin-top:17px}}
 @media(max-width:360px){.pd-desk{gap:7px;padding-right:11px;padding-left:5px;min-height:193px}.pd-animation{height:173px}.pd-desk-status{font-size:11px}.pd-start{font-size:12px}.pd-preparation-title{flex-shrink:1;line-height:1.7}.pd-preparation-actions{gap:4px}.pd-question-footer{align-items:flex-start}.pd-plan{gap:5px}.pd-question-meta{gap:5px}}
 @media(prefers-reduced-motion:reduce){.pd-question,.pd-start,.pd-material-slots>view{transition:none}}
+</style>
+
+<style scoped>
+.pd-star-row{display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:10px}
 </style>

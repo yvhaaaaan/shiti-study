@@ -3,6 +3,8 @@ export const SUBJECTS = ['数学', '英语', '物理', '化学', '语文', '生�
 export type Subject = (typeof SUBJECTS)[number] | (string & {})
 export type PaperSubject = Subject | '综合'
 export type Difficulty = '基础' | '进阶' | '挑战'
+/** User-owned importance, independent from derived mastery/proficiency. */
+export type QuestionImportance = 1 | 2 | 3 | 4 | 5
 export type OrganizationStatus = 'pending' | 'ready'
 export type QuestionStatus = 'reinforce' | 'mastered'
 export type ReviewRating = 'wrong' | 'correct' | 'mastered'
@@ -49,6 +51,8 @@ export interface Question {
   answer: string
   analysis: string
   userAnswer: string
+  /** How important the learner considers this question. */
+  importance: QuestionImportance
   remark?: string
   remarkImages?: string[]
   reflection?: LearningReflection
@@ -78,6 +82,7 @@ export interface QuestionInput {
   answer?: string
   analysis?: string
   userAnswer?: string
+  importance?: QuestionImportance
   remark?: string
   remarkImages?: string[]
   reflection?: LearningReflection

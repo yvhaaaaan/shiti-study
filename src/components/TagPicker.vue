@@ -49,7 +49,7 @@ function useSearchAsTag() {
 
 <template>
   <view class="tag-picker">
-    <view class="tag-heading"><text class="field-label">知识点标签</text><text class="tag-total">已选 {{ selectedTags.length }} / {{ MAX_TAGS }}</text></view>
+    <view class="tag-heading"><text class="field-label">旧版标签</text><text class="tag-total">已选 {{ selectedTags.length }} / {{ MAX_TAGS }}</text></view>
     <view v-if="selectedTags.length" class="selected-tags"><button v-for="tag in selectedTags" :key="tag" class="selected-tag" :aria-label="`移除标签 ${tag}`" @tap="removeTag(tag)"><text>{{ tag }}</text><AppIcon name="x" :size="11" tone="green" /></button></view>
     <textarea :value="modelValue" class="form-textarea tag-free-input" :maxlength="2000" placeholder="自己输入标签，用逗号、分号或换行分隔；也可点选下方推荐" @input="onRawInput" />
     <text class="tag-feedback" :class="{ 'tag-feedback-error': tagError }">{{ tagError || '按需选择知识点、题型、学段或方法。已选标签都可用于搜索。' }}</text>

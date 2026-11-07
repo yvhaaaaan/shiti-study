@@ -16,7 +16,7 @@
 
 `NOTEBOOK_COVERS` 位于 `notebooks.ts`，包含 K12 6 种、计算机 5 种、考公 3 种、通用 4 种封面。`notebookCover(id)` 返回封面视觉元数据，`normalizeNotebook()` 统一校验。
 
-题目的 `notebookId` 是旧版实际归属，与 `subject` 独立；主界面用 `subject` 聚合题目。题目新增 `knowledgePoint`（主知识点）和 `relatedKnowledgePoints`（最多 4 个相关知识点），旧 `tags` 只作为兼容元数据和搜索字段。旧题无归属时通过 `migrateNotebooks()` 按学科生成确定 ID 的默认本；空本、自建本和已有归属保留。细节见 [产品逻辑设计](../../docs/产品逻辑设计.md)。
+题目的 `notebookId` 是旧版实际归属，与 `subject` 独立；主界面先展示跨学科错题库，再用 `subject` 聚合科目错题本，科目本内使用 `knowledgePoint`（主知识点）和 `relatedKnowledgePoints`（最多 4 个相关知识点）细分。`importance` 是用户自己的 1–5 星重要程度，和练习推导出的熟练度完全独立；旧 `tags` 只作为兼容元数据和搜索字段。旧题无归属时通过 `migrateNotebooks()` 按学科生成确定 ID 的默认本；空本、自建本和已有归属保留。细节见 [产品逻辑设计](../../docs/产品逻辑设计.md)。
 
 ## 方法
 
@@ -27,7 +27,7 @@
 | `moveQuestionsToNotebook(ids, notebookId)` | 整批校验后移动未删除题目，只改归属，不重置锻造。 |
 | `addQuestion(input)` / `addQuestions(inputs)` | 题干或图片至少一项。指定 notebookId 时校验目标存在；未指定时按科目自动归档。批量校验全部通过后才修改数据。 |
 | `updateQuestion(id, patch)` | 更新原题；题干、答案、原图实质改变时归档旧测试。科目改变后不匹配的关联单科卷转为综合。仅改归属、标题、备注或复盘不重置进度。 |
-| `toggleFavorite` / `deleteQuestion` / `restoreQuestion` | 收藏或软删除/恢复，不级联删除错题本、历史、笔记及试卷引用。 |
+| `toggleFavorite` / `deleteQuestion` / `restoreQuestion` | 收藏或手动软删除/恢复，不级联删除错题本、历史、笔记及试卷引用；删除由界面按当前熟练度先确认，未满 5 星会明确警告。 |
 | `submitReview(id, input, now?)` | 校验判题证据、内容快照和阶段；相同 requestId 重试不重复记数。expectedContent 与当前题目不一致时拒绝旧判题结果；`now` 仅供内部或测试传入，不依赖时间服务。 |
 | `setPlan(id, date?)` | 设置或取消提醒，不修改锻造完成状态。 |
 | `saveNote(input)` / `deleteNote(id)` | 管理知识笔记与题目关联；标题必填，文字或附图至少一项。 |

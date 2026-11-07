@@ -1,5 +1,5 @@
 import { isValidSubject } from '../domain/taxonomy'
-import type { Difficulty, Subject } from '../domain/types'
+import type { Difficulty, QuestionImportance, Subject } from '../domain/types'
 import { storageStatus } from '../services/studyStorage'
 
 export interface QuestionDraftForm {
@@ -12,6 +12,7 @@ export interface QuestionDraftForm {
   answer: string
   analysis: string
   userAnswer: string
+  importance: QuestionImportance
   remark: string
   remarkImages: string[]
   difficulty: Difficulty | ''
@@ -59,7 +60,7 @@ function copyForm(form: QuestionDraftForm): QuestionDraftForm {
   return {
     title: form.title, subject: form.subject, knowledgePoint: form.knowledgePoint ?? '', relatedKnowledgePoints: [...(form.relatedKnowledgePoints ?? [])], stem: form.stem,
     ...(form.notebookId !== undefined ? { notebookId: form.notebookId } : {}),
-    answer: form.answer, analysis: form.analysis, userAnswer: form.userAnswer,
+    answer: form.answer, analysis: form.analysis, userAnswer: form.userAnswer, importance: form.importance ?? 3,
     remark: form.remark ?? '', remarkImages: [...(form.remarkImages ?? [])],
     difficulty: form.difficulty, source: form.source,
     tags: form.tags, images: [...form.images],

@@ -3,7 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { createSeedState, dayOffset, localDate } from './seed'
 import { SUBJECTS } from './types'
 import { serializeBackup, validateBackup } from './backup'
-import { isValidSubject, normalizeKnowledgePoint, normalizePaperSubject, normalizeRelatedKnowledgePoints, normalizeSubject, normalizeTags } from './taxonomy'
+import { isValidSubject, normalizeImportance, normalizeKnowledgePoint, normalizePaperSubject, normalizeRelatedKnowledgePoints, normalizeSubject, normalizeTags } from './taxonomy'
 import { forgeProgress, normalizeForge, normalizeReflection, questionContentKey, validateForgeAttempt } from './forge'
 import { storageStatus, checkSession, loadLocalState, saveLocalState, loadCloudState, saveCloudState, portableState } from '../services/studyStorage'
 import type { BackupCounts, Difficulty, Notebook, NotebookInput, Note, NoteInput, Paper, PaperInput, Profile, Question, QuestionInput, QuestionSnapshot, ReviewInput, ReviewRecord, StudyState, StudyStats, Subject } from './types'
@@ -63,7 +63,7 @@ function copySavedQuestion(question: Question): Question {
   return {
     notebookId: question.notebookId, id: question.id, title: question.title, subject: question.subject,
     knowledgePoint, relatedKnowledgePoints: normalizeRelatedKnowledgePoints(question.relatedKnowledgePoints, knowledgePoint), stem: question.stem,
-    answer: question.answer, analysis: question.analysis, userAnswer: question.userAnswer,
+    answer: question.answer, analysis: question.analysis, userAnswer: question.userAnswer, importance: normalizeImportance(question.importance),
     remark: question.remark ?? '', remarkImages: [...(question.remarkImages ?? [])],
     reflection: normalizeReflection(question.reflection),
     tags: normalizeTags(question.tags), difficulty: question.difficulty, source: question.source,
@@ -261,7 +261,7 @@ function normalizeQuestion(input: QuestionInput): Omit<Question, 'id' | 'created
     title: input.title?.trim() || stem.replace(/\s+/g, ' ').slice(0, 26) || '图片错题',
     subject, knowledgePoint, relatedKnowledgePoints, stem,
     answer: input.answer?.trim() ?? '', analysis: input.analysis?.trim() ?? '',
-    userAnswer: input.userAnswer?.trim() ?? '',
+    userAnswer: input.userAnswer?.trim() ?? '', importance: normalizeImportance(input.importance),
     remark: input.remark?.trim() ?? '', remarkImages,
     reflection: normalizeReflection(input.reflection),
     tags: normalizeTags(input.tags), difficulty, source: input.source?.trim() || (organizationStatus === 'pending' ? '快速采集' : '手动录入'),
@@ -576,4 +576,4 @@ const store = { notebooks, saveNotebook, deleteNotebook, moveQuestionsToNotebook
 /** One reactive instance shared by all Vue pages; mutations always go through these methods. */
 export function useStudyStore() { return store }
 
-export type { Notebook, NotebookInput, NotebookAudience, BackupCounts, BackupEnvelope, BackupValidationResult, OrganizationStatus, Question, QuestionInput, QuestionSnapshot, Note, NoteInput, Paper, PaperInput, Profile, ReviewInput, ReviewRecord, StudyStats, Subject } from './types'
+export type { Notebook, NotebookInput, NotebookAudience, BackupCounts, BackupEnvelope, BackupValidationResult, OrganizationStatus, Question, QuestionInput, QuestionImportance, QuestionSnapshot, Note, NoteInput, Paper, PaperInput, Profile, ReviewInput, ReviewRecord, StudyStats, Subject } from './types'
