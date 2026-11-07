@@ -1,13 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, ref } from 'vue'
 import { useStudyStore } from '../domain/store'
-import { dayOffset } from '../domain/seed'
 import { forgeProgress, FORGE_STAGES, questionContentKey } from '../domain/forge'
 import type { ForgeStage, Question, ReviewRating } from '../domain/types'
 import AppIcon from './AppIcon.vue'
 import BrandMark from './BrandMark.vue'
 import { assessAnswer } from '../services/assessment'
-import { getServerTime } from '../services/studyStorage'
 import type { AssessmentResult } from '../domain/assessment'
 import MathText from './MathText.vue'
 import ForgeProgress from './ForgeProgress.vue'
@@ -31,14 +29,13 @@ const reflection = ref('')
 const assessment = ref<AssessmentResult | null>(null)
 const submittedAnswer = ref('')
 const judging = ref(false)
-const planDate = ref(dayOffset(task.value.interval))
 const finished = ref(false)
 const submitting = ref(false)
 const feedback = ref(false)
 const error = ref('')
 const scrollTop = ref(0)
 let lastScrollTop = 0
-const results = ref<Array<{ questionId: string; title: string; rating: ReviewRating; stage: ForgeStage; completed: number; planDate?: string }>>([])
+const results = ref<Array<{ questionId: string; title: string; rating: ReviewRating; stage: ForgeStage; completed: number }>>([])
 const failedQuestionIds = computed(() => [...new Map(results.value.map(row => [row.questionId, row])).values()].filter(row => row.rating === 'wrong').map(row => row.questionId))
 const lastResult = computed(() => results.value[results.value.length - 1])
 const successCount = computed(() => results.value.filter(row => row.rating !== 'wrong').length)
@@ -46,15 +43,7 @@ const masteredCount = computed(() => new Set(results.value.filter(row => row.com
 const requestId = ref(newRequestId())
 const canPass = computed(() => assessment.value?.verdict === 'correct' && !!submittedAnswer.value)
 function newRequestId() { return `forge-${Date.now()}-${Math.random().toString(16).slice(2)}` }
-function nextPlanDate() {
-  const interval = Number(task.value?.interval)
-  return Number.isFinite(interval) ? dayOffset(interval) : dayOffset(1)
-}
-function normalizedPlanDate() {
-  const value = String(planDate.value || '')
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : nextPlanDate()
-}
-function resetQuestion() { const current = questionsFor([q.value?.id || ''])[0]; if (current) items.value[index.value] = current; expectedContent.value = q.value ? questionContentKey(q.value) : ''; attemptStage.value = progress.value.nextStage; answer.value = ''; reflection.value = ''; assessment.value = null; submittedAnswer.value = ''; revealed.value = false; feedback.value = false; planDate.value = nextPlanDate(); requestId.value = newRequestId(); error.value = '' }
+function resetQuestion() { const current = questionsFor([q.value?.id || ''])[0]; if (current) items.value[index.value] = current; expectedContent.value = q.value ? questionContentKey(q.value) : ''; attemptStage.value = progress.value.nextStage; answer.value = ''; reflection.value = ''; assessment.value = null; submittedAnswer.value = ''; revealed.value = false; feedback.value = false; requestId.value = newRequestId(); error.value = '' }
 async function scrollToStart() { scrollTop.value = lastScrollTop; await nextTick(); scrollTop.value = 0 }
 function advance() { if (index.value + 1 >= items.value.length) finished.value = true; else { index.value++; resetQuestion() }; void scrollToStart() }
 async function submitTest() {
@@ -75,16 +64,13 @@ async function grade(rating: 'wrong' | 'correct') {
   if (rating === 'correct' && !canPass.value) { error.value = '请先完成判题。'; return }
   submitting.value = true; error.value = ''
   try {
-    const serverNow = await getServerTime()
-    const safePlanDate = normalizedPlanDate()
     const record = store.submitReview(q.value.id, {
       answer: submittedAnswer.value, rating, expectedContent: expectedContent.value, requestId: requestId.value,
-      ...(safePlanDate ? { planDate: safePlanDate } : {}),
       forge: { stage: attemptStage.value, reflection: reflection.value, assessment: { verdict: rating, method: assessment.value.method, feedback: assessment.value.feedback, submittedAnswer: submittedAnswer.value } },
-    }, serverNow)
+    })
     await store.flushPersistence()
     if (record.forge?.retired) throw new Error('题目在保存期间已修改，请重新载入后测试。')
-    results.value.push({ questionId: q.value.id, title: record.questionSnapshot?.title || q.value.title, rating: record.rating, stage: record.forge!.stage, completed: forgeProgress(q.value.id, store.state.reviews).completed, planDate: record.planDate })
+    results.value.push({ questionId: q.value.id, title: record.questionSnapshot?.title || q.value.title, rating: record.rating, stage: record.forge!.stage, completed: forgeProgress(q.value.id, store.state.reviews).completed })
     feedback.value = true
     void scrollToStart()
   } catch (e) { error.value = e instanceof Error ? e.message : '保存未完成，请重试。' }
@@ -116,7 +102,6 @@ function quit() {
         <ForgeProgress :completed="lastResult.completed" :active-stage="lastResult.stage" :animating="lastResult.rating !== 'wrong'" />
         <view class="test-verdict" :class="assessment?.verdict"><text>{{ assessment?.verdict === 'correct' ? '回答正确' : '还需订正' }}</text><text>{{ assessment?.feedback }}</text><text>{{ assessment?.method === 'ai' ? 'AI 辅助判题 · 请结合解析核对' : '客观答案自动核对' }}</text></view>
         <text class="feedback-copy">{{ lastResult.rating === 'wrong' ? '本次作答已保存，当前阶段不前进，之前通过的次数不扣除。' : '本次答对已自动记入锻造进度，不需要填写心得才能升级。' }}</text>
-<text v-if="lastResult.planDate" class="feedback-plan">下次复习提醒：{{ lastResult.planDate }}</text>
         <view v-if="q" class="review-solution"><text class="field-label">参考答案与解析</text><MathText :text="q.answer" class="solution-answer" /><MathText :text="q.analysis || '请对照题目条件核对。'" class="solution-analysis" /></view>
         <button v-if="lastResult.completed < 5 || lastResult.rating === 'wrong'" class="button button-quiet next-forge retry-current" @tap="retryCurrent">{{ lastResult.rating === 'wrong' ? '订正后重新测试' : '继续测试这道题' }}</button>
         <button class="button button-primary next-forge advance-test" @tap="advance">{{ index + 1 < items.length ? '下一道题' : '查看本轮结果' }}</button>

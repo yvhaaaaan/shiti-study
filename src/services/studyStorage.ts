@@ -83,13 +83,6 @@ export async function login(username: string, password: string, register = false
   } catch (error) { storageStatus.error = error instanceof Error ? error.message : '登录未完成，请重试。'; throw error }
   finally { storageStatus.busy = false }
 }
-export async function getServerTime(): Promise<Date> {
-  if (!cloudEnabled()) return new Date()
-  const result = await request<{ now?: string; unix?: number }>('/api/time')
-  const parsed = new Date(String(result.now || ''))
-  if (!Number.isFinite(parsed.getTime()) || (result.unix !== undefined && Math.floor(parsed.getTime() / 1000) !== Number(result.unix))) throw new Error('服务器时间服务返回无效结果，本次测试未提交，请重试。')
-  return parsed
-}
 export async function logout() {
   await request('/api/logout', { method: 'POST' })
   window.location.reload()
